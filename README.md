@@ -106,3 +106,15 @@ See `END_TO_END_GUIDE.md` and `QUICK_START.md` for detailed setup.
 ## VM production deploy
 
 Use **`deploy/install.sh`**, **`deploy/env.example`**, and **`deploy/README.md`** for systemd + Gunicorn + optional nginx. Database credentials are read from **`DATABASE_*`** environment variables (see `deploy/env.example`).
+
+**`static/` is tracked in git** so the server does not need Node/npm if you `git pull` a fresh build. Rebuild on your laptop when you change the frontend:  
+`cd frontend && VITE_API_URL=http://YOUR_IP:8002/api npm run build`, then commit and push `static/`.
+
+**If `./run_server.sh` fails with** `bash\r: No such file or directory`, your scripts have Windows line endings. On the server run:
+
+```bash
+sed -i 's/\r$//' run_server.sh start.sh deploy/*.sh
+chmod +x run_server.sh deploy/*.sh
+```
+
+Or: `bash deploy/fix_shell_crlf.sh` (after fixing that file once with `sed` above).

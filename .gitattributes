@@ -1,0 +1,3 @@
+# Force Unix line endings for shell scripts (avoids /usr/bin/env: bash\r on Linux)
+*.sh text eol=lf
+deploy/*.sh text eol=lf

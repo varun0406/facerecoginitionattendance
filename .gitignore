@@ -42,8 +42,8 @@ Thumbs.db
 .env
 .env.local
 
-# Static build (will be generated)
-static/
+# Static is committed so VMs without Node still get the UI; rebuild after frontend changes:
+#   cd frontend && VITE_API_URL=http://YOUR_HOST:8002/api npm run build
 
 # Uploads
 uploads/
