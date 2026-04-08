@@ -11,7 +11,7 @@ from config import DATABASE_CONFIG
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_raw = DATABASE_CONFIG.get("db_type", "mysql").lower()
+_raw = DATABASE_CONFIG.get("db_type", "sqlite").lower()
 if _raw == "sqlite":
     import sqlite3
 
@@ -51,6 +51,12 @@ class Database:
 
     @classmethod
     def initialize_pool(cls):
+        if DB_TYPE == "sqlite" and cls._connection_pool == "sqlite" and cls._sqlite_path:
+            return
+        if DB_TYPE == "mysql" and cls._connection_pool is not None:
+            return
+        if DB_TYPE == "postgresql" and cls._connection_pool is not None:
+            return
         try:
             if DB_TYPE == "sqlite":
                 path = DATABASE_CONFIG.get("sqlite_path") or "attendance.db"
@@ -97,6 +103,8 @@ class Database:
         conn = None
         try:
             if DB_TYPE == "sqlite":
+                if not cls._sqlite_path:
+                    cls.initialize_pool()
                 conn = sqlite3.connect(
                     cls._sqlite_path, check_same_thread=False, timeout=30.0
                 )
@@ -544,6 +552,8 @@ class Database:
 
     @classmethod
     def test_connection(cls):
+        if DB_TYPE == "sqlite" and not cls._sqlite_path:
+            return False
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()

@@ -32,6 +32,18 @@ fi
 cd "$INSTALL_ROOT"
 echo "==> Install root: $INSTALL_ROOT"
 
+if [[ ! -f "$INSTALL_ROOT/frontend/package.json" ]]; then
+  echo "" >&2
+  echo "ERROR: frontend/package.json not found." >&2
+  echo "Your clone is incomplete. The React app must live under frontend/." >&2
+  echo "" >&2
+  echo "Fix:" >&2
+  echo "  1) On your laptop: push the full repo (including frontend/) to GitHub, then git pull on the server." >&2
+  echo "  2) Or copy the folder:  scp -r ./frontend root@YOUR_SERVER:$INSTALL_ROOT/" >&2
+  echo "" >&2
+  exit 1
+fi
+
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" &>/dev/null; then
   echo "python3 not found. Install: sudo apt install python3 python3-venv python3-pip" >&2

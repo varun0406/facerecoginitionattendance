@@ -47,6 +47,8 @@ python3 app.py
 
 Open `http://localhost:5000`. The DB file is `attendance.db` in the project folder.
 
+**VM tip:** If `frontend/package.json` is missing after `git clone`, your remote repo is incomplete. Push the full tree (including `frontend/`) from your dev machine, or `scp -r frontend user@server:/opt/facerecoginitionattendance/`.
+
 ## Run (local or VM)
 
 1. **Database:** default is **SQLite** (`DATABASE_TYPE=sqlite`, `SQLITE_PATH=attendance.db`). For MySQL/PostgreSQL, set env vars (see `deploy/env.example`) or legacy fields in `config.py`.

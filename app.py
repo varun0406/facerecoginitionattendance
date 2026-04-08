@@ -27,6 +27,14 @@ if _cors:
 else:
     CORS(app)
 
+# Before background sync touches the DB (must run before any thread uses Database)
+try:
+    Database.initialize_pool()
+    Database.create_tables()
+    logger.info("Database initialized successfully")
+except Exception as e:
+    logger.error("Database initialization failed: %s", e)
+
 # Initialize services
 face_service = FaceRecognitionService()
 offline_storage = OfflineStorage()
@@ -326,15 +334,6 @@ def delete_user_images(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Initialize database
-    try:
-        Database.initialize_pool()
-        Database.create_tables()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-    
-    # Run Flask app
     app.run(
         host=SERVER_CONFIG['host'],
         port=SERVER_CONFIG['port'],

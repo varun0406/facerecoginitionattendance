@@ -33,6 +33,16 @@ FLUSH PRIVILEGES;
 
 Set `DATABASE_TYPE=mysql` and the `DATABASE_*` variables in `/etc/face-attendance.env`.
 
+## If `npm` says `package.json` not found
+
+The GitHub repo must contain the **`frontend/`** directory (Vite + React). If you cloned an old or partial repo, either:
+
+- **Push** the complete project from your machine (including `frontend/`), then on the server: `git pull`, or  
+- **Copy only the frontend:** from your laptop:  
+  `scp -r /path/to/project/frontend root@SERVER:/opt/facerecoginitionattendance/`
+
+Then run `npm install` and `npm run build` inside `frontend/`.
+
 ## Install
 
 1. Clone or copy the project to the VM, e.g. `/opt/face-attendance`.
