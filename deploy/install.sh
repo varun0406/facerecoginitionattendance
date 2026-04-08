@@ -32,6 +32,11 @@ fi
 cd "$INSTALL_ROOT"
 echo "==> Install root: $INSTALL_ROOT"
 
+chmod +x "$INSTALL_ROOT/deploy/install.sh" \
+  "$INSTALL_ROOT/deploy/pack_static_for_vm.sh" \
+  "$INSTALL_ROOT/deploy/gunicorn_start.sh" \
+  "$INSTALL_ROOT/run_server.sh" 2>/dev/null || true
+
 SKIP_NPM=false
 if [[ ! -f "$INSTALL_ROOT/frontend/package.json" ]]; then
   if [[ -f "$INSTALL_ROOT/static/index.html" ]]; then
