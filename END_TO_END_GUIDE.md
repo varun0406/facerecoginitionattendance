@@ -55,7 +55,7 @@ Your system now has a complete end-to-end workflow for face recognition attendan
    ```
 
 3. **Open in browser:**
-   - Go to: http://localhost:5000
+   - Go to: http://localhost:8002
    - You'll see navigation with 4 pages:
      - **Attendance** - Test face recognition
      - **Users** - Manage users

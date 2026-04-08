@@ -21,8 +21,9 @@ if [ ! -d "static" ] || [ ! -f "static/index.html" ]; then
     cd ..
 fi
 
-# Start Flask application
-echo "Starting Flask server..."
+# Start Flask application (port 8002 — override with FLASK_PORT)
+export FLASK_PORT="${FLASK_PORT:-8002}"
+echo "Starting Flask server on port ${FLASK_PORT}..."
 python app.py
 
 

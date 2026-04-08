@@ -101,8 +101,8 @@ python app.py
 ```
 
 The app will be available at:
-- Backend API: `http://VM_IP:5000/api`
-- Frontend: `http://VM_IP:5000/` (if serving static files)
+- Backend API: `http://VM_IP:8002/api`
+- Frontend: `http://VM_IP:8002/` (if serving static files)
 
 ## API Endpoints
 

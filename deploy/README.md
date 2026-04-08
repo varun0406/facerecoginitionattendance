@@ -54,7 +54,7 @@ Then run `npm install` and `npm run build` inside `frontend/`.
    sudo nano /etc/face-attendance.env
    ```
 
-   Set at least: `DATABASE_*`, `VITE_API_URL` (must be the URL **browsers** use to reach the API, e.g. `http://203.0.113.10:5000/api` or `https://your.domain/api`).
+   Set at least: `DATABASE_*`, `FLASK_PORT=8002`, `VITE_API_URL` (must match, e.g. `http://203.0.113.10:8002/api` or `https://your.domain/api`).
 
 3. Run the installer from the project root:
 
@@ -70,7 +70,7 @@ Then run `npm install` and `npm run build` inside `frontend/`.
    sudo systemctl status face-attendance
    ```
 
-5. Open firewall for port **5000** (or only **443** if using nginx).
+5. Open firewall for port **8002** (or only **443** if using nginx).
 
 ## Rebuild UI after changing public URL
 
@@ -94,7 +94,7 @@ Then rebuild with `--build-only` and restart nginx.
 With the service up:
 
 ```bash
-API_BASE=http://127.0.0.1:5000/api python3 smoke_test_api.py
+API_BASE=http://127.0.0.1:8002/api python3 smoke_test_api.py
 ```
 
 ## Paths on the server

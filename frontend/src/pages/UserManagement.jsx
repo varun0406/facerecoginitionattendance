@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Plus, Edit, Trash2, User } from 'lucide-react'
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002/api'
 
 function UserManagement() {
   const [vendors, setVendors] = useState([])

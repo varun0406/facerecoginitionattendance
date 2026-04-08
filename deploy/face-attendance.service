@@ -10,15 +10,8 @@ Group=__DEPLOY_USER__
 WorkingDirectory=__INSTALL_ROOT__
 EnvironmentFile=-/etc/face-attendance.env
 
-# One worker: background offline-sync thread must not run in multiple processes.
-ExecStart=__INSTALL_ROOT__/venv/bin/gunicorn \
-  --bind 0.0.0.0:5000 \
-  --workers 1 \
-  --threads 4 \
-  --timeout 120 \
-  --access-logfile - \
-  --error-logfile - \
-  wsgi:app
+# Port from FLASK_PORT in EnvironmentFile (default 8002 in gunicorn_start.sh).
+ExecStart=__INSTALL_ROOT__/deploy/gunicorn_start.sh
 
 Restart=on-failure
 RestartSec=5

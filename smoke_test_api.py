@@ -3,7 +3,7 @@
 Quick VM / local checks (no pytest). Run while the server is up:
 
   python3 smoke_test_api.py
-  API_BASE=http://127.0.0.1:5000/api python3 smoke_test_api.py
+  API_BASE=http://127.0.0.1:8002/api python3 smoke_test_api.py
 """
 
 import json
@@ -12,7 +12,7 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = os.environ.get("API_BASE", "http://127.0.0.1:5000/api").rstrip("/")
+BASE = os.environ.get("API_BASE", "http://127.0.0.1:8002/api").rstrip("/")
 
 
 def get(path: str):

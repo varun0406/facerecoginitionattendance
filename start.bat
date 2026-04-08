@@ -20,8 +20,9 @@ if not exist "static\index.html" (
     cd ..
 )
 
-REM Start Flask application
-echo Starting Flask server...
+REM Start Flask application (port 8002 — set FLASK_PORT to override)
+set FLASK_PORT=8002
+echo Starting Flask server on port %FLASK_PORT%...
 python app.py
 
 pause

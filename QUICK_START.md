@@ -33,8 +33,8 @@ start.bat
 ### 3. Access the Application
 
 Open your browser and go to:
-- **Local:** http://localhost:5000
-- **Network:** http://YOUR_IP:5000 (for phone/tablet access)
+- **Local:** http://localhost:8002
+- **Network:** http://YOUR_IP:8002 (for phone/tablet access)
 
 ### 4. Test with Phone/Tablet
 
@@ -42,7 +42,7 @@ Open your browser and go to:
 2. Find your computer's IP address:
    - Windows: `ipconfig` (look for IPv4 Address)
    - Example: `192.168.1.100`
-3. On your phone/tablet browser, go to: `http://192.168.1.100:5000`
+3. On your phone/tablet browser, go to: `http://192.168.1.100:8002`
 4. Allow camera permissions when prompted
 
 ## API Endpoints
@@ -58,10 +58,10 @@ You can test the API directly:
 
 ```bash
 # Check status
-curl http://localhost:5000/api/status
+curl http://localhost:8002/api/status
 
 # Get attendance records
-curl http://localhost:5000/api/attendance
+curl http://localhost:8002/api/attendance
 ```
 
 ## Important Notes

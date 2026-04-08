@@ -55,19 +55,19 @@ The application now supports camera access on:
        ssl_certificate_key /path/to/key.pem;
        
        location / {
-           proxy_pass http://localhost:5000;
+           proxy_pass http://localhost:8002;
        }
    }
    ```
 
 2. **Option 2: Use Flask with SSL**
    ```python
-   app.run(ssl_context='adhoc', host='0.0.0.0', port=5000)
+   app.run(ssl_context='adhoc', host='0.0.0.0', port=8002)
    ```
 
 3. **Option 3: Use ngrok for testing**
    ```bash
-   ngrok http 5000
+   ngrok http 8002
    ```
    Then access via the HTTPS URL provided by ngrok
 
@@ -75,7 +75,7 @@ The application now supports camera access on:
 
 1. **Same Network (Local Testing)**
    - Find your computer's IP: `ipconfig` (Windows) or `ifconfig` (Linux/Mac)
-   - On mobile: `http://YOUR_IP:5000` (only works if using HTTPS or localhost equivalent)
+   - On mobile: `http://YOUR_IP:8002` (only works if using HTTPS or localhost equivalent)
 
 2. **Production/VM**
    - Use HTTPS URL: `https://your-domain.com`

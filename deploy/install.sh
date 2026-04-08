@@ -32,16 +32,22 @@ fi
 cd "$INSTALL_ROOT"
 echo "==> Install root: $INSTALL_ROOT"
 
+SKIP_NPM=false
 if [[ ! -f "$INSTALL_ROOT/frontend/package.json" ]]; then
-  echo "" >&2
-  echo "ERROR: frontend/package.json not found." >&2
-  echo "Your clone is incomplete. The React app must live under frontend/." >&2
-  echo "" >&2
-  echo "Fix:" >&2
-  echo "  1) On your laptop: push the full repo (including frontend/) to GitHub, then git pull on the server." >&2
-  echo "  2) Or copy the folder:  scp -r ./frontend root@YOUR_SERVER:$INSTALL_ROOT/" >&2
-  echo "" >&2
-  exit 1
+  if [[ -f "$INSTALL_ROOT/static/index.html" ]]; then
+    echo "==> No frontend/ but static/index.html exists — skipping npm build."
+    SKIP_NPM=true
+  else
+    echo "" >&2
+    echo "ERROR: No frontend/package.json and no static/index.html" >&2
+    echo "" >&2
+    echo "Pick one:" >&2
+    echo "  A) Push full repo with frontend/, or: scp -r ./frontend root@SERVER:$INSTALL_ROOT/" >&2
+    echo "  B) On laptop run:  export VITE_API_URL=http://SERVER:PORT/api && ./deploy/pack_static_for_vm.sh" >&2
+    echo "     then: scp static-for-vm.tar.gz root@SERVER:$INSTALL_ROOT/ && ssh SERVER 'cd $INSTALL_ROOT && tar xzvf static-for-vm.tar.gz'" >&2
+    echo "" >&2
+    exit 1
+  fi
 fi
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
@@ -121,7 +127,9 @@ if [[ -f /etc/face-attendance.env ]]; then
   set +a
 fi
 
-if [[ -z "${VITE_API_URL:-}" ]]; then
+if [[ "$SKIP_NPM" == true ]]; then
+  :
+elif [[ -z "${VITE_API_URL:-}" ]]; then
   echo "VITE_API_URL missing. Set it in /etc/face-attendance.env then run:" >&2
   echo "  ./deploy/install.sh --build-only" >&2
 else

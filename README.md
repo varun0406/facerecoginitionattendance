@@ -19,7 +19,7 @@ Tune without editing code:
 | Environment variable | Default | Purpose |
 |----------------------|---------|---------|
 | `FLASK_HOST` | `0.0.0.0` | Bind address (VM: keep `0.0.0.0` to reach from browser/phone) |
-| `FLASK_PORT` | `5000` | HTTP port |
+| `FLASK_PORT` | `8002` | HTTP port |
 | `FLASK_DEBUG` | `false` | Set `true` only while developing |
 | `TRAINING_MIN_IMAGES` | `18` | Minimum saved faces per user who has any training data |
 | `TRAINING_RECOMMENDED_IMAGES` | `30` | Shown in UI as “recommended” |
@@ -40,12 +40,13 @@ cd facerecoginitionattendance
 python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 export DATABASE_TYPE=sqlite   # default in config if unset
+export FLASK_PORT=8002
 python3 test_connection.py
 cd frontend && npm install && npm run build && cd ..
 python3 app.py
 ```
 
-Open `http://localhost:5000`. The DB file is `attendance.db` in the project folder.
+Open `http://localhost:8002`. The DB file is `attendance.db` in the project folder.
 
 **VM tip:** If `frontend/package.json` is missing after `git clone`, your remote repo is incomplete. Push the full tree (including `frontend/`) from your dev machine, or `scp -r frontend user@server:/opt/facerecoginitionattendance/`.
 
@@ -58,11 +59,11 @@ Open `http://localhost:5000`. The DB file is `attendance.db` in the project fold
    ```bash
    cd frontend
    npm install
-   VITE_API_URL=http://YOUR_VM_IP:5000/api npm run build
+   VITE_API_URL=http://YOUR_VM_IP:8002/api npm run build
    cd ..
    ```
 
-   If you only open the app on the same machine as Flask, `npm run build` without `VITE_API_URL` is enough (defaults to `http://localhost:5000/api`).
+   If you only open the app on the same machine as Flask, `npm run build` without `VITE_API_URL` is enough (defaults to `http://localhost:8002/api`).
 
 4. Start the server:
 
@@ -79,7 +80,7 @@ Open `http://localhost:5000`. The DB file is `attendance.db` in the project fold
 6. **API smoke test** (with Flask running):
 
    ```bash
-   API_BASE=http://127.0.0.1:5000/api python3 smoke_test_api.py
+   API_BASE=http://127.0.0.1:8002/api python3 smoke_test_api.py
    ```
 
 ## Registering people (face → person)
