@@ -1,0 +1,11 @@
+opencv-contrib-python
+pillow
+mysql-connector-python
+tk
+numpy
+scikit-learn
+tensorflow
+keras
+mtcnn
+joblib
+pyttsx3
