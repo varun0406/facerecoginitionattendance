@@ -11,6 +11,29 @@ from config import DATABASE_CONFIG
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _compute_duration(start: str, end: str):
+    """Return (duration_str, duration_minutes) from two HH:MM:SS strings.
+
+    Handles overnight shifts (end < start) by assuming same-day wrap at midnight.
+    Returns (None, None) if either value is missing or unparseable.
+    """
+    if not start or not end:
+        return None, None
+    try:
+        from datetime import datetime, timedelta
+        fmt = "%H:%M:%S"
+        t0 = datetime.strptime(start, fmt)
+        t1 = datetime.strptime(end, fmt)
+        diff = t1 - t0
+        if diff.total_seconds() < 0:
+            diff += timedelta(hours=24)
+        total_min = int(diff.total_seconds() // 60)
+        h, m = divmod(total_min, 60)
+        return f"{h}h {m:02d}m", total_min
+    except Exception:
+        return None, None
+
 _raw = DATABASE_CONFIG.get("db_type", "sqlite").lower()
 if _raw == "sqlite":
     import sqlite3
@@ -448,7 +471,7 @@ class Database:
                     address,
                     date,
                     start_time,
-                    start_time,
+                    None,
                     status,
                 )
                 cursor.execute(query, params)
@@ -544,11 +567,55 @@ class Database:
                 cur.execute(query, params)
                 rows = cur.fetchall()
                 if DB_TYPE == "mysql":
-                    return rows
-                return [_row_to_dict(r) for r in rows]
+                    records = rows
+                else:
+                    records = [_row_to_dict(r) for r in rows]
+            enriched = []
+            for r in records:
+                rec = dict(r)
+                st = rec.get("start_time") or rec.get("time")
+                et = rec.get("end_time")
+                dur_str, dur_min = _compute_duration(st, et)
+                rec["duration"] = dur_str
+                rec["duration_minutes"] = dur_min
+                rec["start_time"] = st
+                enriched.append(rec)
+            return enriched
         except Exception as e:
             logger.error("Error fetching attendance: %s", e)
             return []
+
+    @classmethod
+    def get_attendance_summary(cls, date=None, limit=500):
+        """Per-user totals: days present and total hours for a date range or all time."""
+        records = cls.get_attendance_records(date=date, limit=limit)
+        summary = {}
+        for r in records:
+            uid = r.get("user_id")
+            if uid is None:
+                continue
+            if uid not in summary:
+                summary[uid] = {
+                    "user_id": uid,
+                    "name": r.get("name", ""),
+                    "department": r.get("department", ""),
+                    "days_present": 0,
+                    "total_minutes": 0,
+                    "days_complete": 0,
+                }
+            summary[uid]["days_present"] += 1
+            dur = r.get("duration_minutes")
+            if dur is not None:
+                summary[uid]["total_minutes"] += dur
+                summary[uid]["days_complete"] += 1
+        result = []
+        for s in summary.values():
+            tm = s["total_minutes"]
+            h, m = divmod(tm, 60)
+            s["total_duration"] = f"{h}h {m:02d}m" if tm else None
+            result.append(s)
+        result.sort(key=lambda x: x["user_id"])
+        return result
 
     @classmethod
     def test_connection(cls):

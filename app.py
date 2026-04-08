@@ -145,11 +145,10 @@ def recognize_face():
 
 @app.route('/api/attendance', methods=['GET'])
 def get_attendance():
-    """Get attendance records"""
+    """Get attendance records, enriched with duration."""
     try:
         date = request.args.get('date')
         limit = int(request.args.get('limit', 100))
-        
         records = Database.get_attendance_records(date=date, limit=limit)
         return jsonify({
             'success': True,
@@ -158,6 +157,23 @@ def get_attendance():
         })
     except Exception as e:
         logger.error(f"Error fetching attendance: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/attendance/summary', methods=['GET'])
+def get_attendance_summary():
+    """Per-user totals: days present and total hours."""
+    try:
+        date = request.args.get('date')
+        limit = int(request.args.get('limit', 500))
+        summary = Database.get_attendance_summary(date=date, limit=limit)
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'count': len(summary)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching attendance summary: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/status', methods=['GET'])

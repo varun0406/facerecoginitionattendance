@@ -35,6 +35,8 @@ echo "==> Install root: $INSTALL_ROOT"
 chmod +x "$INSTALL_ROOT/deploy/install.sh" \
   "$INSTALL_ROOT/deploy/pack_static_for_vm.sh" \
   "$INSTALL_ROOT/deploy/gunicorn_start.sh" \
+  "$INSTALL_ROOT/deploy/vm_firewall_check.sh" \
+  "$INSTALL_ROOT/deploy/fix_shell_crlf.sh" \
   "$INSTALL_ROOT/run_server.sh" 2>/dev/null || true
 
 SKIP_NPM=false

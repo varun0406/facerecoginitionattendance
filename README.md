@@ -118,3 +118,39 @@ chmod +x run_server.sh deploy/*.sh
 ```
 
 Or: `bash deploy/fix_shell_crlf.sh` (after fixing that file once with `sed` above).
+
+### Laptop cannot open `http://VM_IP:8002` (connection refused / timeout)
+
+The app log showing `Running on http://72.x.x.x:8002` only means Flask is listening. **Traffic from the internet** is often blocked by:
+
+1. **Your VPS control panel firewall** (Hostinger hPanel → Security → Firewall, AWS Security Group, etc.) — add **inbound TCP 8002** (or use **port 80** behind nginx). UFW on the server does nothing if the cloud blocks the port first.
+2. **UFW on Ubuntu** (if enabled):
+
+   ```bash
+   sudo ufw allow 8002/tcp
+   sudo ufw reload
+   sudo ufw status
+   ```
+
+3. **Quick checks on the VM** (with `./run_server.sh` running):
+
+   ```bash
+   bash deploy/vm_firewall_check.sh
+   curl -sI http://127.0.0.1:8002/ | head -3
+   ```
+
+4. **From your laptop:** `curl -sI http://72.61.240.38:8002/` — if this fails but VM `curl localhost` works, the block is **outside** the app (provider firewall or UFW).
+
+### Camera / Training page does nothing (no webcam)
+
+Browsers **block the camera** on **plain `http://PUBLIC_IP`**. It only works on **HTTPS** or **`http://localhost`** / **`http://127.0.0.1`**.
+
+**Quick test from your laptop:**
+
+```bash
+ssh -L 8002:127.0.0.1:8002 root@YOUR_SERVER_IP
+```
+
+Keep that terminal open, then in the browser go to **http://localhost:8002** (not the public IP). The UI should show a yellow tip when the context is insecure.
+
+**Production:** use **nginx + Let’s Encrypt** (HTTPS on 443) in front of the app. After HTTPS works, rebuild the frontend with `VITE_API_URL=https://your.domain/api`.

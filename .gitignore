@@ -10,12 +10,12 @@ ENV/
 *.egg-info/
 dist/
 build/
-
+.venv/
 # React
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
-
+data/
 # Database
 *.db
 *.sqlite
