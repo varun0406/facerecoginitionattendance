@@ -1,7 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Camera, CheckCircle, XCircle, Loader, Wifi, WifiOff } from 'lucide-react'
 import axios from 'axios'
-import { requestCameraAccess, getCameraConstraints } from '../utils/camera'
+import {
+  requestCameraAccess,
+  getCameraConstraints,
+  bindStreamToVideoElement,
+  waitForVideoDrawReady,
+} from '../utils/camera'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002/api'
 
@@ -12,7 +17,8 @@ function Attendance() {
   const [processingTime, setProcessingTime] = useState(0)
   const [isOnline, setIsOnline] = useState(true)
   const [pendingSync, setPendingSync] = useState(0)
-  
+  const [mediaStream, setMediaStream] = useState(null)
+
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
@@ -23,6 +29,17 @@ function Attendance() {
     const interval = setInterval(checkSystemStatus, 30000)
     return () => clearInterval(interval)
   }, [])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!mediaStream || !video) return
+    bindStreamToVideoElement(video, mediaStream)
+    return () => {
+      if (video.srcObject === mediaStream) {
+        video.srcObject = null
+      }
+    }
+  }, [mediaStream, status])
 
   const checkSystemStatus = async () => {
     try {
@@ -36,62 +53,32 @@ function Attendance() {
 
   const startCamera = async () => {
     try {
-      // Use camera utility for cross-platform compatibility
       const result = await requestCameraAccess(getCameraConstraints())
-      
+
       if (!result.success) {
         setError(result.error || 'Failed to access camera')
         setStatus('error')
+        setMediaStream(null)
         return
       }
-      
-      const stream = result.stream
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        
-        // Wait for video to be ready
-        await new Promise((resolve, reject) => {
-          const video = videoRef.current
-          if (!video) {
-            reject(new Error('Video element not found'))
-            return
-          }
-          
-          const onLoadedMetadata = () => {
-            video.removeEventListener('loadedmetadata', onLoadedMetadata)
-            video.removeEventListener('error', onError)
-            // Additional small delay to ensure video is fully ready
-            setTimeout(resolve, 500)
-          }
-          
-          const onError = (err) => {
-            video.removeEventListener('loadedmetadata', onLoadedMetadata)
-            video.removeEventListener('error', onError)
-            reject(err)
-          }
-          
-          video.addEventListener('loadedmetadata', onLoadedMetadata)
-          video.addEventListener('error', onError)
-          
-          // Timeout after 5 seconds
-          setTimeout(() => {
-            video.removeEventListener('loadedmetadata', onLoadedMetadata)
-            video.removeEventListener('error', onError)
-            reject(new Error('Video loading timeout'))
-          }, 5000)
-        })
-      }
+
+      streamRef.current = result.stream
+      setMediaStream(result.stream)
     } catch (error) {
       setError('Camera access denied. Please allow camera permissions.')
       setStatus('error')
+      setMediaStream(null)
     }
   }
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
+    }
+    setMediaStream(null)
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
     }
   }
 
@@ -103,24 +90,12 @@ function Attendance() {
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    
-    // Wait for video to be ready with retries
-    let retries = 0
-    const maxRetries = 10
-    while (video.readyState !== video.HAVE_ENOUGH_DATA && retries < maxRetries) {
-      await new Promise(resolve => setTimeout(resolve, 200))
-      retries++
-    }
-    
-    // Check if video is ready after retries
-    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-      setError('Video not ready. Please wait a moment and try again.')
-      return
-    }
-    
-    // Check if video has valid dimensions
-    if (!video.videoWidth || !video.videoHeight || video.videoWidth === 0 || video.videoHeight === 0) {
-      setError('Video dimensions not available. Please wait a moment and try again.')
+
+    const drawReady = await waitForVideoDrawReady(video, 20000)
+    if (!drawReady) {
+      setError(
+        'Video not ready. Please wait a moment and try again, or restart the camera.'
+      )
       return
     }
 
@@ -230,8 +205,8 @@ function Attendance() {
   }
 
   const handleStart = async () => {
+    setError(null)
     await startCamera()
-    setStatus('idle')
   }
 
   const handleStop = () => {
@@ -253,7 +228,7 @@ function Attendance() {
         )}
       </div>
 
-      {status === 'idle' && !streamRef.current && (
+      {status === 'idle' && !mediaStream && (
         <div className="start-screen">
           <Camera size={64} className="camera-icon" />
           <h2>Clock in / Clock out</h2>
@@ -267,7 +242,8 @@ function Attendance() {
         </div>
       )}
 
-      {(status === 'idle' || status === 'capturing' || status === 'processing') && streamRef.current && (
+      {(status === 'idle' || status === 'capturing' || status === 'processing') &&
+        mediaStream && (
         <div className="camera-container">
           <video
             ref={videoRef}

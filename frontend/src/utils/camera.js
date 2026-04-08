@@ -1,7 +1,24 @@
 /**
  * Camera utility functions for cross-platform compatibility
  * Works on both desktop (laptop) and mobile devices
+ *
+ * Browsers only allow getUserMedia in a "secure context": HTTPS, or
+ * http://localhost / http://127.0.0.1. Plain http://YOUR_PUBLIC_IP will NOT work.
  */
+
+/** True only when the browser may allow camera (HTTPS or localhost). */
+export function isCameraAllowedByBrowser() {
+  if (typeof window === 'undefined') return true
+  return window.isSecureContext === true
+}
+
+export function getInsecureCameraMessage() {
+  return (
+    'Camera is disabled on plain HTTP for this address. Browsers require HTTPS or localhost. ' +
+    'Fix: (1) Add HTTPS (nginx + Let’s Encrypt), or (2) SSH tunnel from your PC: ' +
+    'ssh -L 8002:127.0.0.1:8002 root@YOUR_SERVER — then open http://localhost:8002'
+  )
+}
 
 /**
  * Get camera constraints optimized for both desktop and mobile
@@ -76,10 +93,27 @@ export async function checkCameraAvailability() {
  */
 export async function requestCameraAccess(constraints = null) {
   try {
+    if (!isCameraAllowedByBrowser()) {
+      return {
+        success: false,
+        stream: null,
+        error: getInsecureCameraMessage(),
+      }
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return {
+        success: false,
+        stream: null,
+        error:
+          'Camera API unavailable. Use a current Chrome/Firefox/Edge, or HTTPS / localhost.',
+      }
+    }
+
     if (!constraints) {
       constraints = getCameraConstraints()
     }
-    
+
     const stream = await navigator.mediaDevices.getUserMedia(constraints)
     return {
       success: true,
@@ -88,9 +122,12 @@ export async function requestCameraAccess(constraints = null) {
     }
   } catch (error) {
     let errorMessage = 'Camera access denied'
-    
-    if (error.name === 'NotAllowedError') {
-      errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.'
+
+    if (error.name === 'SecurityError' || /secure context/i.test(String(error.message))) {
+      errorMessage = getInsecureCameraMessage()
+    } else if (error.name === 'NotAllowedError') {
+      errorMessage =
+        'Camera permission denied. Allow camera in the address bar, or use HTTPS / http://localhost (see banner above).'
     } else if (error.name === 'NotFoundError') {
       errorMessage = 'No camera found on this device.'
     } else if (error.name === 'NotReadableError') {
@@ -125,3 +162,57 @@ export async function requestCameraAccess(constraints = null) {
   }
 }
 
+/**
+ * Attach a MediaStream to a <video> after React has mounted the element.
+ * Call from useEffect when videoRef.current and stream are both available.
+ */
+export async function bindStreamToVideoElement(video, stream) {
+  if (!video || !stream) return
+  if (video.srcObject !== stream) {
+    video.srcObject = stream
+  }
+  video.muted = true
+  video.setAttribute('playsinline', '')
+  video.playsInline = true
+  try {
+    await video.play()
+  } catch (e) {
+    console.warn('video.play():', e)
+  }
+}
+
+/**
+ * Wait until the video has non-zero dimensions (enough to drawImage).
+ * More reliable than requiring HAVE_ENOUGH_DATA alone.
+ */
+export function waitForVideoDrawReady(video, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    if (!video) {
+      resolve(false)
+      return
+    }
+    let timer
+    const cleanup = () => {
+      clearTimeout(timer)
+      video.removeEventListener('loadeddata', onTry)
+      video.removeEventListener('loadedmetadata', onTry)
+      video.removeEventListener('canplay', onTry)
+      video.removeEventListener('playing', onTry)
+    }
+    const onTry = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        cleanup()
+        resolve(true)
+      }
+    }
+    onTry()
+    video.addEventListener('loadeddata', onTry)
+    video.addEventListener('loadedmetadata', onTry)
+    video.addEventListener('canplay', onTry)
+    video.addEventListener('playing', onTry)
+    timer = setTimeout(() => {
+      cleanup()
+      resolve(video.videoWidth > 0 && video.videoHeight > 0)
+    }, timeoutMs)
+  })
+}

@@ -1,7 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Camera, CheckCircle, XCircle, Loader, User } from 'lucide-react'
 import axios from 'axios'
-import { requestCameraAccess, getCameraConstraints } from '../utils/camera'
+import {
+  requestCameraAccess,
+  getCameraConstraints,
+  bindStreamToVideoElement,
+  waitForVideoDrawReady,
+} from '../utils/camera'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002/api'
 
@@ -15,7 +20,8 @@ function TrainingCapture() {
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  
+  const [mediaStream, setMediaStream] = useState(null)
+
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
@@ -29,6 +35,17 @@ function TrainingCapture() {
       loadImageCount()
     }
   }, [selectedUserId])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!mediaStream || !video) return
+    bindStreamToVideoElement(video, mediaStream)
+    return () => {
+      if (video.srcObject === mediaStream) {
+        video.srcObject = null
+      }
+    }
+  }, [mediaStream, status])
 
   const loadVendors = async () => {
     try {
@@ -77,85 +94,32 @@ function TrainingCapture() {
       if (!result.success) {
         setError(result.error || 'Failed to access camera')
         setStatus('error')
+        setMediaStream(null)
         return
       }
       
       const stream = result.stream
       streamRef.current = stream
-      
-      if (videoRef.current) {
-        const video = videoRef.current
-        video.srcObject = stream
-        
-        // Wait for video to be ready with multiple checks
-        await new Promise((resolve, reject) => {
-          let attempts = 0
-          const maxAttempts = 50 // 5 seconds total
-          
-          const checkReady = () => {
-            attempts++
-            
-            // Check multiple conditions
-            const hasMetadata = video.readyState >= video.HAVE_METADATA
-            const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0
-            const hasEnoughData = video.readyState >= video.HAVE_ENOUGH_DATA
-            
-            if (hasMetadata && hasDimensions && hasEnoughData) {
-              // Video is ready
-              resolve()
-            } else if (attempts >= maxAttempts) {
-              // Timeout - but still try to proceed if we have metadata
-              if (hasMetadata && hasDimensions) {
-                console.warn('Video readyState not optimal but proceeding')
-                resolve()
-              } else {
-                reject(new Error('Video failed to load properly'))
-              }
-            } else {
-              // Check again in 100ms
-              setTimeout(checkReady, 100)
-            }
-          }
-          
-          // Also listen for metadata event
-          const onLoadedMetadata = () => {
-            // Give it a moment to stabilize
-            setTimeout(() => {
-              if (video.videoWidth > 0 && video.videoHeight > 0) {
-                video.removeEventListener('loadedmetadata', onLoadedMetadata)
-                video.removeEventListener('error', onError)
-                resolve()
-              }
-            }, 300)
-          }
-          
-          const onError = (err) => {
-            video.removeEventListener('loadedmetadata', onLoadedMetadata)
-            video.removeEventListener('error', onError)
-            reject(err)
-          }
-          
-          video.addEventListener('loadedmetadata', onLoadedMetadata)
-          video.addEventListener('error', onError)
-          
-          // Start checking immediately
-          setTimeout(checkReady, 100)
-        })
-      }
-      
+      setMediaStream(stream)
+
       setStatus('ready')
       setError('')
     } catch (error) {
       console.error('Camera error:', error)
       setError('Camera access denied. Please allow camera permissions.')
       setStatus('error')
+      setMediaStream(null)
     }
   }
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
+    }
+    setMediaStream(null)
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
     }
     setStatus('idle')
   }
@@ -168,29 +132,12 @@ function TrainingCapture() {
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    
-    // Wait for video to be ready with more lenient checks
-    let retries = 0
-    const maxRetries = 20 // 4 seconds total
-    
-    while (retries < maxRetries) {
-      const hasMetadata = video.readyState >= video.HAVE_METADATA
-      const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0
-      
-      if (hasMetadata && hasDimensions) {
-        break // Video is ready enough
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 200))
-      retries++
-    }
-    
-    // Final check - be more lenient
-    const hasMetadata = video.readyState >= video.HAVE_METADATA
-    const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0
-    
-    if (!hasMetadata || !hasDimensions) {
-      setError('Video not ready. Please wait a moment and try again, or restart the camera.')
+
+    const drawReady = await waitForVideoDrawReady(video, 20000)
+    if (!drawReady) {
+      setError(
+        'Video not ready. Please wait a moment and try again, or restart the camera.'
+      )
       return
     }
 
