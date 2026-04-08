@@ -34,18 +34,20 @@ TRAINING_CONFIG = {
     'max_brightness': float(os.environ.get('TRAINING_MAX_BRIGHTNESS', '230')),
 }
 
-# MySQL Database Configuration (for local testing)
+# Database — override on the VM via environment (see deploy/env.example)
 DATABASE_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': 'root',
-    'password': '87654321',
-    'database': 'attendance',
-    'connection_timeout': 5,  # 5 seconds timeout for DB connection
-    'retry_attempts': 3,
-    'retry_delay': 2,  # seconds
-    'pool_size': 10,  # Connection pool size
-    'db_type': 'mysql',  # 'mysql' or 'postgresql'
+    'host': os.environ.get('DATABASE_HOST', 'localhost'),
+    'port': int(os.environ.get('DATABASE_PORT', '3306')),
+    'user': os.environ.get('DATABASE_USER', 'root'),
+    'password': os.environ.get('DATABASE_PASSWORD', '87654321'),
+    'database': os.environ.get('DATABASE_NAME', 'attendance'),
+    'connection_timeout': int(os.environ.get('DATABASE_CONNECT_TIMEOUT', '5')),
+    'retry_attempts': int(os.environ.get('DATABASE_RETRY_ATTEMPTS', '3')),
+    'retry_delay': int(os.environ.get('DATABASE_RETRY_DELAY', '2')),
+    'pool_size': int(os.environ.get('DATABASE_POOL_SIZE', '10')),
+    # mysql | postgresql | sqlite (sqlite = single file, no server)
+    'db_type': os.environ.get('DATABASE_TYPE', 'sqlite').lower(),
+    'sqlite_path': os.environ.get('SQLITE_PATH', 'attendance.db'),
 }
 
 # Offline/Edge Processing Configuration

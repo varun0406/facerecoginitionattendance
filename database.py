@@ -1,91 +1,171 @@
 """
-Database Module - Supports both MySQL and PostgreSQL
-Currently configured for MySQL for local testing
+Database module: MySQL, PostgreSQL, or SQLite (file-based, no server).
 """
 
 import logging
+import os
 from contextlib import contextmanager
+
 from config import DATABASE_CONFIG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import appropriate database connector
-if DATABASE_CONFIG.get('db_type', 'mysql') == 'mysql':
-    import mysql.connector
-    from mysql.connector import pooling
-    DB_TYPE = 'mysql'
-else:
+_raw = DATABASE_CONFIG.get("db_type", "mysql").lower()
+if _raw == "sqlite":
+    import sqlite3
+
+    DB_TYPE = "sqlite"
+elif _raw == "postgresql":
     import psycopg2
     from psycopg2 import pool
     from psycopg2.extras import RealDictCursor
-    DB_TYPE = 'postgresql'
+
+    DB_TYPE = "postgresql"
+else:
+    import mysql.connector
+    from mysql.connector import pooling
+
+    DB_TYPE = "mysql"
+
+
+def _sql(q: str) -> str:
+    return q.replace("%s", "?") if DB_TYPE == "sqlite" else q
+
+
+def _row_to_dict(row):
+    if row is None:
+        return None
+    if DB_TYPE == "mysql":
+        return row
+    if DB_TYPE == "sqlite":
+        return dict(row)
+    return dict(row)
+
 
 class Database:
-    """Database connection and operations - supports MySQL and PostgreSQL"""
-    
+    """Database connection and operations."""
+
     _connection_pool = None
-    
+    _sqlite_path = None
+
     @classmethod
     def initialize_pool(cls):
-        """Initialize connection pool"""
         try:
-            if DB_TYPE == 'mysql':
+            if DB_TYPE == "sqlite":
+                path = DATABASE_CONFIG.get("sqlite_path") or "attendance.db"
+                if not os.path.isabs(path):
+                    path = os.path.abspath(path)
+                parent = os.path.dirname(path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                cls._sqlite_path = path
+                cls._connection_pool = "sqlite"
+                logger.info("SQLite database at %s", cls._sqlite_path)
+                return
+            if DB_TYPE == "mysql":
                 cls._connection_pool = mysql.connector.pooling.MySQLConnectionPool(
                     pool_name="attendance_pool",
-                    pool_size=DATABASE_CONFIG['pool_size'],
-                    host=DATABASE_CONFIG['host'],
-                    port=DATABASE_CONFIG['port'],
-                    user=DATABASE_CONFIG['user'],
-                    password=DATABASE_CONFIG['password'],
-                    database=DATABASE_CONFIG['database'],
-                    connection_timeout=DATABASE_CONFIG['connection_timeout'],
-                    autocommit=False
+                    pool_size=DATABASE_CONFIG["pool_size"],
+                    host=DATABASE_CONFIG["host"],
+                    port=DATABASE_CONFIG["port"],
+                    user=DATABASE_CONFIG["user"],
+                    password=DATABASE_CONFIG["password"],
+                    database=DATABASE_CONFIG["database"],
+                    connection_timeout=DATABASE_CONFIG["connection_timeout"],
+                    autocommit=False,
                 )
             else:
                 cls._connection_pool = psycopg2.pool.ThreadedConnectionPool(
                     1,
-                    DATABASE_CONFIG['pool_size'],
-                    host=DATABASE_CONFIG['host'],
-                    port=DATABASE_CONFIG['port'],
-                    user=DATABASE_CONFIG['user'],
-                    password=DATABASE_CONFIG['password'],
-                    database=DATABASE_CONFIG['database'],
-                    connect_timeout=DATABASE_CONFIG['connection_timeout']
+                    DATABASE_CONFIG["pool_size"],
+                    host=DATABASE_CONFIG["host"],
+                    port=DATABASE_CONFIG["port"],
+                    user=DATABASE_CONFIG["user"],
+                    password=DATABASE_CONFIG["password"],
+                    database=DATABASE_CONFIG["database"],
+                    connect_timeout=DATABASE_CONFIG["connection_timeout"],
                 )
-            logger.info(f"Database connection pool initialized ({DB_TYPE})")
+            logger.info("Database connection pool initialized (%s)", DB_TYPE)
         except Exception as e:
-            logger.error(f"Error initializing connection pool: {e}")
+            logger.error("Error initializing connection pool: %s", e)
             raise
-    
+
     @classmethod
     @contextmanager
     def get_connection(cls):
-        """Get database connection from pool"""
         conn = None
         try:
-            if DB_TYPE == 'mysql':
+            if DB_TYPE == "sqlite":
+                conn = sqlite3.connect(
+                    cls._sqlite_path, check_same_thread=False, timeout=30.0
+                )
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys = ON")
+                yield conn
+                conn.commit()
+            elif DB_TYPE == "mysql":
                 conn = cls._connection_pool.get_connection()
+                yield conn
+                conn.commit()
             else:
                 conn = cls._connection_pool.getconn()
-            yield conn
-            conn.commit()
+                yield conn
+                conn.commit()
         except Exception as e:
             if conn:
                 conn.rollback()
-            logger.error(f"Database error: {e}")
+            logger.error("Database error: %s", e)
             raise
         finally:
             if conn:
-                if DB_TYPE == 'mysql':
+                if DB_TYPE == "sqlite":
+                    conn.close()
+                elif DB_TYPE == "mysql":
                     conn.close()
                 else:
                     cls._connection_pool.putconn(conn)
-    
+
     @classmethod
     def create_tables(cls):
-        """Create required database tables"""
-        if DB_TYPE == 'mysql':
+        if DB_TYPE == "sqlite":
+            create_vendor_table = """
+            CREATE TABLE IF NOT EXISTS vendor_details (
+                vendor_id INTEGER PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                department VARCHAR(100),
+                purpose VARCHAR(255),
+                visited_by VARCHAR(255),
+                visit_type VARCHAR(50),
+                dob VARCHAR(20),
+                gender VARCHAR(10),
+                number VARCHAR(20),
+                vendor_company VARCHAR(255),
+                address TEXT,
+                photo VARCHAR(10) DEFAULT 'NO',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+            create_attendance_table = """
+            CREATE TABLE IF NOT EXISTS attendance_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                department VARCHAR(100),
+                address TEXT,
+                date VARCHAR(20) NOT NULL,
+                start_time VARCHAR(20) NOT NULL,
+                end_time VARCHAR(20) NULL,
+                time VARCHAR(20) NULL,
+                status VARCHAR(20) DEFAULT 'Present',
+                synced_at TIMESTAMP NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES vendor_details(vendor_id),
+                UNIQUE (user_id, date)
+            );
+            """
+        elif DB_TYPE == "mysql":
             create_vendor_table = """
             CREATE TABLE IF NOT EXISTS vendor_details (
                 vendor_id INT PRIMARY KEY,
@@ -104,7 +184,6 @@ class Database:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
-            
             create_attendance_table = """
             CREATE TABLE IF NOT EXISTS attendance_records (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -143,7 +222,6 @@ class Database:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """
-            
             create_attendance_table = """
             CREATE TABLE IF NOT EXISTS attendance_records (
                 id SERIAL PRIMARY KEY,
@@ -162,33 +240,58 @@ class Database:
                 CONSTRAINT uq_attendance_user_date UNIQUE (user_id, date)
             );
             """
-            
-            create_indexes = """
-            CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance_records(user_id, date);
-            CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(date);
-            CREATE INDEX IF NOT EXISTS idx_vendor_id ON vendor_details(vendor_id);
-            """
-        
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(create_vendor_table)
                 cursor.execute(create_attendance_table)
-                if DB_TYPE == 'postgresql':
-                    cursor.execute(create_indexes)
+                if DB_TYPE == "postgresql":
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_attendance_user_date
+                        ON attendance_records(user_id, date);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_attendance_date
+                        ON attendance_records(date);
+                        """
+                    )
                 logger.info("Database tables created successfully")
         except Exception as e:
-            logger.error(f"Error creating tables: {e}")
+            logger.error("Error creating tables: %s", e)
             raise
         cls.ensure_attendance_clock_schema()
-    
+
     @classmethod
     def ensure_attendance_clock_schema(cls):
-        """Migrate legacy attendance_records rows to start_time / end_time (clock in / out)."""
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
-                if DB_TYPE == 'mysql':
+                if DB_TYPE == "sqlite":
+                    cursor.execute("PRAGMA table_info(attendance_records)")
+                    cols = {row[1] for row in cursor.fetchall()}
+                    if cols and "start_time" not in cols:
+                        cursor.execute(
+                            "ALTER TABLE attendance_records ADD COLUMN start_time VARCHAR(20)"
+                        )
+                        cursor.execute(
+                            "ALTER TABLE attendance_records ADD COLUMN end_time VARCHAR(20)"
+                        )
+                        if "time" in cols:
+                            cursor.execute(
+                                "UPDATE attendance_records SET start_time = time "
+                                "WHERE start_time IS NULL AND time IS NOT NULL"
+                            )
+                    try:
+                        cursor.execute(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_user_date "
+                            "ON attendance_records (user_id, date)"
+                        )
+                    except Exception as ex:
+                        logger.warning("SQLite unique index: %s", ex)
+                elif DB_TYPE == "mysql":
                     cursor.execute(
                         """
                         SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -221,23 +324,25 @@ class Database:
                         )
                     except Exception as ex:
                         logger.warning(
-                            "Could not add unique key uq_attendance_user_date (may already exist or duplicate rows): %s",
-                            ex,
+                            "Could not add unique key uq_attendance_user_date: %s", ex
                         )
                 else:
                     cursor.execute(
                         """
                         SELECT COUNT(*) FROM information_schema.columns
-                        WHERE table_name = 'attendance_records' AND column_name = 'start_time'
+                        WHERE table_name = 'attendance_records'
+                          AND column_name = 'start_time'
                         """
                     )
                     has_start = cursor.fetchone()[0] > 0
                     if not has_start:
                         cursor.execute(
-                            "ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS start_time VARCHAR(20)"
+                            "ALTER TABLE attendance_records "
+                            "ADD COLUMN IF NOT EXISTS start_time VARCHAR(20)"
                         )
                         cursor.execute(
-                            "ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS end_time VARCHAR(20)"
+                            "ALTER TABLE attendance_records "
+                            "ADD COLUMN IF NOT EXISTS end_time VARCHAR(20)"
                         )
                         cursor.execute(
                             "UPDATE attendance_records SET start_time = time "
@@ -248,143 +353,154 @@ class Database:
                                 "ALTER TABLE attendance_records ALTER COLUMN time DROP NOT NULL"
                             )
                         except Exception as ex:
-                            logger.debug("time column already nullable or absent: %s", ex)
+                            logger.debug("time column: %s", ex)
                     try:
                         cursor.execute(
                             "CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_user_date "
                             "ON attendance_records (user_id, date)"
                         )
                     except Exception as ex:
-                        logger.warning("Could not create unique index on attendance_records: %s", ex)
+                        logger.warning("Could not create unique index: %s", ex)
         except Exception as e:
             logger.warning("Attendance schema migration skipped or partial: %s", e)
-    
+
+    @classmethod
+    def _cursor(cls, conn, dictionary=False):
+        if DB_TYPE == "mysql":
+            return conn.cursor(dictionary=dictionary)
+        if DB_TYPE == "sqlite":
+            return conn.cursor()
+        return conn.cursor(cursor_factory=RealDictCursor)
+
     @classmethod
     def get_vendor_by_id(cls, vendor_id):
-        """Get vendor details by ID"""
-        query = """
-        SELECT vendor_id, name, department, address 
-        FROM vendor_details 
+        query = _sql(
+            """
+        SELECT vendor_id, name, department, address
+        FROM vendor_details
         WHERE vendor_id = %s
         """
+        )
         try:
             with cls.get_connection() as conn:
-                if DB_TYPE == 'mysql':
-                    cursor = conn.cursor(dictionary=True)
-                else:
-                    cursor = conn.cursor(cursor_factory=RealDictCursor)
-                cursor.execute(query, (vendor_id,))
-                result = cursor.fetchone()
-                if DB_TYPE == 'mysql':
-                    return result if result else None
-                return dict(result) if result else None
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(query, (vendor_id,))
+                return _row_to_dict(cur.fetchone())
         except Exception as e:
-            logger.error(f"Error fetching vendor: {e}")
+            logger.error("Error fetching vendor: %s", e)
             return None
-    
+
     @classmethod
     def get_today_session(cls, user_id, date):
-        """Latest attendance row for this user and calendar date (start/stop same day)."""
-        query = """
-        SELECT id, user_id, name, department, address, date, start_time, end_time, time, status
+        query = _sql(
+            """
+        SELECT id, user_id, name, department, address, date,
+               start_time, end_time, time, status
         FROM attendance_records
         WHERE user_id = %s AND date = %s
         ORDER BY id DESC
         LIMIT 1
         """
+        )
         try:
             with cls.get_connection() as conn:
-                if DB_TYPE == 'mysql':
-                    cursor = conn.cursor(dictionary=True)
-                else:
-                    cursor = conn.cursor(cursor_factory=RealDictCursor)
-                cursor.execute(query, (user_id, date))
-                row = cursor.fetchone()
-                if not row:
-                    return None
-                return dict(row) if DB_TYPE == 'postgresql' else row
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(query, (user_id, date))
+                return _row_to_dict(cur.fetchone())
         except Exception as e:
-            logger.error(f"Error fetching session: {e}")
+            logger.error("Error fetching session: %s", e)
             return None
-    
+
     @classmethod
-    def insert_clock_in(cls, user_id, name, department, address, date, start_time, status='Present'):
-        """Record start time (face-verified user). Legacy `time` mirrors start_time."""
-        if DB_TYPE == 'mysql':
-            query = """
-            INSERT INTO attendance_records
-            (user_id, name, department, address, date, start_time, end_time, time, status, synced_at)
-            VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s, NOW())
-            """
-        else:
+    def insert_clock_in(
+        cls, user_id, name, department, address, date, start_time, status="Present"
+    ):
+        if DB_TYPE == "postgresql":
             query = """
             INSERT INTO attendance_records
             (user_id, name, department, address, date, start_time, end_time, time, status, synced_at)
             VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s, CURRENT_TIMESTAMP)
             RETURNING id
             """
+        else:
+            query = _sql(
+                """
+            INSERT INTO attendance_records
+            (user_id, name, department, address, date, start_time, end_time, time, status, synced_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s, CURRENT_TIMESTAMP)
+            """
+            )
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    query,
-                    (user_id, name, department, address, date, start_time, start_time, status),
+                params = (
+                    user_id,
+                    name,
+                    department,
+                    address,
+                    date,
+                    start_time,
+                    start_time,
+                    status,
                 )
-                if DB_TYPE == 'mysql':
+                cursor.execute(query, params)
+                if DB_TYPE == "mysql":
+                    return cursor.lastrowid
+                if DB_TYPE == "sqlite":
                     return cursor.lastrowid
                 result = cursor.fetchone()
                 return result[0] if result else None
         except Exception as e:
-            logger.error(f"Error clock in: {e}")
+            logger.error("Error clock in: %s", e)
             return None
-    
+
     @classmethod
     def update_clock_out(cls, attendance_id, end_time):
-        """Set stop time for an open session."""
-        if DB_TYPE == 'mysql':
+        if DB_TYPE == "mysql":
             query = """
             UPDATE attendance_records
             SET end_time = %s, synced_at = NOW()
             WHERE id = %s AND end_time IS NULL
             """
         else:
-            query = """
+            query = _sql(
+                """
             UPDATE attendance_records
             SET end_time = %s, synced_at = CURRENT_TIMESTAMP
             WHERE id = %s AND end_time IS NULL
             """
+            )
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, (end_time, attendance_id))
                 return cursor.rowcount > 0
         except Exception as e:
-            logger.error(f"Error clock out: {e}")
+            logger.error("Error clock out: %s", e)
             return False
-    
+
     @classmethod
     def apply_queued_attendance(cls, record: dict) -> bool:
-        """Apply one offline queue record (clock in or clock out)."""
-        event = (record.get('event') or record.get('punch_type') or '').lower()
-        user_id = record.get('user_id')
-        date = record.get('date')
+        event = (record.get("event") or record.get("punch_type") or "").lower()
+        user_id = record.get("user_id")
+        date = record.get("date")
         if user_id is None or not date:
             return False
-        if event == 'clock_out':
-            end_time = record.get('end_time') or record.get('time')
+        if event == "clock_out":
+            end_time = record.get("end_time") or record.get("time")
             if not end_time:
                 return False
             session = cls.get_today_session(user_id, date)
-            if not session or session.get('end_time'):
+            if not session or session.get("end_time"):
                 return False
-            return cls.update_clock_out(session['id'], end_time)
-        start_time = record.get('start_time') or record.get('time')
+            return cls.update_clock_out(session["id"], end_time)
+        start_time = record.get("start_time") or record.get("time")
         if not start_time:
             return False
-        name = record.get('name', '')
-        department = record.get('department', '')
-        address = record.get('address', '')
-        status = record.get('status', 'Present')
+        name = record.get("name", "")
+        department = record.get("department", "")
+        address = record.get("address", "")
+        status = record.get("status", "Present")
         session = cls.get_today_session(user_id, date)
         if session is None:
             row_id = cls.insert_clock_in(
@@ -392,44 +508,42 @@ class Database:
             )
             return row_id is not None
         return True
-    
+
     @classmethod
     def get_attendance_records(cls, date=None, limit=100):
-        """Get attendance records"""
         if date:
-            query = """
-            SELECT * FROM attendance_records 
-            WHERE date = %s 
-            ORDER BY id DESC 
+            query = _sql(
+                """
+            SELECT * FROM attendance_records
+            WHERE date = %s
+            ORDER BY id DESC
             LIMIT %s
             """
+            )
             params = (date, limit)
         else:
-            query = """
-            SELECT * FROM attendance_records 
-            ORDER BY created_at DESC 
+            query = _sql(
+                """
+            SELECT * FROM attendance_records
+            ORDER BY created_at DESC
             LIMIT %s
             """
+            )
             params = (limit,)
-        
         try:
             with cls.get_connection() as conn:
-                if DB_TYPE == 'mysql':
-                    cursor = conn.cursor(dictionary=True)
-                else:
-                    cursor = conn.cursor(cursor_factory=RealDictCursor)
-                cursor.execute(query, params)
-                results = cursor.fetchall()
-                if DB_TYPE == 'mysql':
-                    return results
-                return [dict(row) for row in results]
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                if DB_TYPE == "mysql":
+                    return rows
+                return [_row_to_dict(r) for r in rows]
         except Exception as e:
-            logger.error(f"Error fetching attendance: {e}")
+            logger.error("Error fetching attendance: %s", e)
             return []
-    
+
     @classmethod
     def test_connection(cls):
-        """Test database connection"""
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
@@ -438,101 +552,106 @@ class Database:
                 cursor.close()
                 return result is not None
         except Exception as e:
-            logger.error(f"Connection test failed: {e}")
+            logger.error("Connection test failed: %s", e)
             return False
-    
+
     @classmethod
     def add_vendor(cls, vendor_data: dict) -> int:
-        """Add a new vendor/user"""
-        query = """
-        INSERT INTO vendor_details 
-        (vendor_id, name, department, purpose, visited_by, visit_type, 
+        query = _sql(
+            """
+        INSERT INTO vendor_details
+        (vendor_id, name, department, purpose, visited_by, visit_type,
          dob, gender, number, vendor_company, address, photo)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
+        )
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(query, (
-                    vendor_data.get('vendor_id'),
-                    vendor_data.get('name'),
-                    vendor_data.get('department', ''),
-                    vendor_data.get('purpose', ''),
-                    vendor_data.get('visited_by', ''),
-                    vendor_data.get('visit_type', ''),
-                    vendor_data.get('dob', ''),
-                    vendor_data.get('gender', ''),
-                    vendor_data.get('number', ''),
-                    vendor_data.get('vendor_company', ''),
-                    vendor_data.get('address', ''),
-                    vendor_data.get('photo', 'NO')
-                ))
-                return cursor.lastrowid if DB_TYPE == 'mysql' else cursor.rowcount
+                cursor.execute(
+                    query,
+                    (
+                        vendor_data.get("vendor_id"),
+                        vendor_data.get("name"),
+                        vendor_data.get("department", ""),
+                        vendor_data.get("purpose", ""),
+                        vendor_data.get("visited_by", ""),
+                        vendor_data.get("visit_type", ""),
+                        vendor_data.get("dob", ""),
+                        vendor_data.get("gender", ""),
+                        vendor_data.get("number", ""),
+                        vendor_data.get("vendor_company", ""),
+                        vendor_data.get("address", ""),
+                        vendor_data.get("photo", "NO"),
+                    ),
+                )
+                if DB_TYPE == "postgresql":
+                    return cursor.rowcount
+                return cursor.lastrowid
         except Exception as e:
-            logger.error(f"Error adding vendor: {e}")
+            logger.error("Error adding vendor: %s", e)
             raise
-    
+
     @classmethod
     def update_vendor(cls, vendor_id: int, vendor_data: dict) -> bool:
-        """Update vendor information"""
-        query = """
-        UPDATE vendor_details 
+        query = _sql(
+            """
+        UPDATE vendor_details
         SET name = %s, department = %s, purpose = %s, visited_by = %s,
             visit_type = %s, dob = %s, gender = %s, number = %s,
             vendor_company = %s, address = %s, photo = %s,
             updated_at = CURRENT_TIMESTAMP
         WHERE vendor_id = %s
         """
+        )
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(query, (
-                    vendor_data.get('name'),
-                    vendor_data.get('department', ''),
-                    vendor_data.get('purpose', ''),
-                    vendor_data.get('visited_by', ''),
-                    vendor_data.get('visit_type', ''),
-                    vendor_data.get('dob', ''),
-                    vendor_data.get('gender', ''),
-                    vendor_data.get('number', ''),
-                    vendor_data.get('vendor_company', ''),
-                    vendor_data.get('address', ''),
-                    vendor_data.get('photo', 'NO'),
-                    vendor_id
-                ))
+                cursor.execute(
+                    query,
+                    (
+                        vendor_data.get("name"),
+                        vendor_data.get("department", ""),
+                        vendor_data.get("purpose", ""),
+                        vendor_data.get("visited_by", ""),
+                        vendor_data.get("visit_type", ""),
+                        vendor_data.get("dob", ""),
+                        vendor_data.get("gender", ""),
+                        vendor_data.get("number", ""),
+                        vendor_data.get("vendor_company", ""),
+                        vendor_data.get("address", ""),
+                        vendor_data.get("photo", "NO"),
+                        vendor_id,
+                    ),
+                )
                 return cursor.rowcount > 0
         except Exception as e:
-            logger.error(f"Error updating vendor: {e}")
+            logger.error("Error updating vendor: %s", e)
             return False
-    
+
     @classmethod
     def delete_vendor(cls, vendor_id: int) -> bool:
-        """Delete a vendor"""
-        query = "DELETE FROM vendor_details WHERE vendor_id = %s"
+        query = _sql("DELETE FROM vendor_details WHERE vendor_id = %s")
         try:
             with cls.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, (vendor_id,))
                 return cursor.rowcount > 0
         except Exception as e:
-            logger.error(f"Error deleting vendor: {e}")
+            logger.error("Error deleting vendor: %s", e)
             return False
-    
+
     @classmethod
     def get_all_vendors(cls):
-        """Get all vendors"""
         query = "SELECT * FROM vendor_details ORDER BY vendor_id"
         try:
             with cls.get_connection() as conn:
-                if DB_TYPE == 'mysql':
-                    cursor = conn.cursor(dictionary=True)
-                else:
-                    cursor = conn.cursor(cursor_factory=RealDictCursor)
-                cursor.execute(query)
-                results = cursor.fetchall()
-                if DB_TYPE == 'mysql':
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(query)
+                results = cur.fetchall()
+                if DB_TYPE == "mysql":
                     return results
-                return [dict(row) for row in results]
+                return [_row_to_dict(r) for r in results]
         except Exception as e:
-            logger.error(f"Error fetching vendors: {e}")
+            logger.error("Error fetching vendors: %s", e)
             return []

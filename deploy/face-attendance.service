@@ -1,0 +1,31 @@
+[Unit]
+Description=Face recognition attendance (Gunicorn + Flask)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__DEPLOY_USER__
+Group=__DEPLOY_USER__
+WorkingDirectory=__INSTALL_ROOT__
+EnvironmentFile=-/etc/face-attendance.env
+
+# One worker: background offline-sync thread must not run in multiple processes.
+ExecStart=__INSTALL_ROOT__/venv/bin/gunicorn \
+  --bind 0.0.0.0:5000 \
+  --workers 1 \
+  --threads 4 \
+  --timeout 120 \
+  --access-logfile - \
+  --error-logfile - \
+  wsgi:app
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening (optional; comment out if you hit permission issues reading camera-less paths)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

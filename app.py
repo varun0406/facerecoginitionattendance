@@ -20,7 +20,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for mobile access
+
+_cors = os.environ.get('CORS_ORIGINS', '').strip()
+if _cors:
+    CORS(app, origins=[o.strip() for o in _cors.split(',') if o.strip()], supports_credentials=True)
+else:
+    CORS(app)
 
 # Initialize services
 face_service = FaceRecognitionService()

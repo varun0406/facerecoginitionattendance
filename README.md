@@ -32,9 +32,24 @@ Tune without editing code:
 - **Frontend:** React + Vite (`frontend/`, built to `static/`)
 - **Recognition:** `opencv-contrib-python` (Haar + LBPH), `face_recognition_service.py`, `training_service.py`
 
+## Fast start with SQLite (no MySQL)
+
+```bash
+git clone https://github.com/varun0406/facerecoginitionattendance.git
+cd facerecoginitionattendance
+python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+export DATABASE_TYPE=sqlite   # default in config if unset
+python3 test_connection.py
+cd frontend && npm install && npm run build && cd ..
+python3 app.py
+```
+
+Open `http://localhost:5000`. The DB file is `attendance.db` in the project folder.
+
 ## Run (local or VM)
 
-1. Set **database** credentials in `config.py` (or move to env vars in a follow-up).
+1. **Database:** default is **SQLite** (`DATABASE_TYPE=sqlite`, `SQLITE_PATH=attendance.db`). For MySQL/PostgreSQL, set env vars (see `deploy/env.example`) or legacy fields in `config.py`.
 2. `pip install -r requirements.txt`
 3. Build UI. From another machine, point the UI at your VM API:
 
@@ -84,3 +99,7 @@ Training filenames use `user.{vendor_id}.{n}.jpg`, so the recognizer’s numeric
 | POST | `/api/training/*` | Capture images, train model |
 
 See `END_TO_END_GUIDE.md` and `QUICK_START.md` for detailed setup.
+
+## VM production deploy
+
+Use **`deploy/install.sh`**, **`deploy/env.example`**, and **`deploy/README.md`** for systemd + Gunicorn + optional nginx. Database credentials are read from **`DATABASE_*`** environment variables (see `deploy/env.example`).
