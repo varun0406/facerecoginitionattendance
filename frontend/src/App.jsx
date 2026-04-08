@@ -68,7 +68,7 @@ function Navigation() {
 
 function App() {
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <div className="app">
         <header className="header">
           <h1>Face Recognition Attendance</h1>
