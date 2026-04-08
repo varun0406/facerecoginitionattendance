@@ -31,7 +31,8 @@ export function getCameraConstraints() {
     // Mobile-optimized constraints
     return {
       video: {
-        facingMode: 'user', // Front-facing camera
+        // Prefer back camera on phones/tablets (falls back automatically if unavailable)
+        facingMode: { ideal: 'environment' },
         width: { ideal: 640, max: 1280 },
         height: { ideal: 480, max: 720 },
         aspectRatio: { ideal: 1.7777777778 }, // 16:9
