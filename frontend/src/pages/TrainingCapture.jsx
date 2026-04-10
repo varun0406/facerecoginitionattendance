@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react'
-import { Camera, CheckCircle, XCircle, Loader, User } from 'lucide-react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { Camera, CheckCircle, XCircle, Loader, User, RefreshCw } from 'lucide-react'
 import axios from 'axios'
 import {
   requestCameraAccess,
@@ -21,14 +21,29 @@ function TrainingCapture() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [mediaStream, setMediaStream] = useState(null)
+  const [autoTrainPending, setAutoTrainPending] = useState(false)
+  const [isTraining, setIsTraining] = useState(false)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
 
+  const pollTrainingStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/training/status`)
+      if (res.data.success) {
+        setAutoTrainPending(res.data.pending_auto_train)
+        setIsTraining(res.data.is_training)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   useEffect(() => {
     loadVendors()
-  }, [])
+    pollTrainingStatus()
+    const id = setInterval(pollTrainingStatus, 10000)
+    return () => clearInterval(id)
+  }, [pollTrainingStatus])
 
   useEffect(() => {
     if (selectedUserId) {
@@ -187,6 +202,9 @@ function TrainingCapture() {
         setMessage(response.data.message)
         setStatus('success')
         loadImageCount()
+        if (response.data.auto_train_triggered) {
+          setAutoTrainPending(true)
+        }
         setTimeout(() => {
           setStatus('ready')
           setMessage('')
@@ -208,8 +226,21 @@ function TrainingCapture() {
       <h2>Capture Training Images</h2>
       <p className="page-description">
         Samples are rejected unless the server sees one clear, sharp face with decent lighting.
-        Capture many angles and distances — the server enforces a minimum before training is allowed.
+        Capture many angles and distances — the server enforces a minimum of {minRequired} images before training is allowed. Model retrains automatically once the threshold is met.
       </p>
+
+      {isTraining && (
+        <div className="auto-train-banner">
+          <RefreshCw size={16} className="spin" />
+          Model is training in the background — please wait before trying attendance…
+        </div>
+      )}
+      {!isTraining && autoTrainPending && (
+        <div className="auto-train-banner">
+          <RefreshCw size={16} className="spin" />
+          Auto-training queued — model will retrain shortly in the background.
+        </div>
+      )}
 
       <div className="training-checklist">
         <strong>Quality checklist (enforced by API)</strong>

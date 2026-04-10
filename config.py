@@ -6,22 +6,21 @@ Web-based for VM deployment with mobile access
 
 import os
 
-# Face Recognition Settings (Optimized for Indian faces)
+# Face Recognition Settings — dlib ResNet 128-dim embeddings
 FACE_RECOGNITION_CONFIG = {
-    # Higher = stricter match (fewer false accepts). Tune 75–85 for production VM.
-    'confidence_threshold': int(os.environ.get('FACE_CONFIDENCE_MIN', '78')),
+    # Lower = stricter (0.40 very strict, 0.45 tight, 0.50 default). Tune in prod.
+    'face_distance_threshold': float(os.environ.get('FACE_DISTANCE_THRESHOLD', '0.45')),
     'face_detection_scale': 1.1,
     'face_detection_neighbors': 5,
     'recognition_timeout': 20,
     'min_face_size': (40, 40),
-    'max_face_size': (400, 400),
     'reject_multiple_faces': os.environ.get('FACE_REJECT_MULTIPLE', 'true').lower()
     in ('1', 'true', 'yes'),
 }
 
-# Training capture & train-time gates (strict = fewer bad samples in the model)
+# Training capture & train-time gates
 TRAINING_CONFIG = {
-    'min_images_per_user': int(os.environ.get('TRAINING_MIN_IMAGES', '18')),
+    'min_images_per_user': int(os.environ.get('TRAINING_MIN_IMAGES', '5')),
     'recommended_images_per_user': int(os.environ.get('TRAINING_RECOMMENDED_IMAGES', '30')),
     'max_images_per_user': int(os.environ.get('TRAINING_MAX_IMAGES', '120')),
     'min_face_size_capture': (
@@ -86,6 +85,7 @@ SERVER_CONFIG = {
 # File Paths
 FILE_PATHS = {
     'classifier': 'classifier.xml',
+    'embeddings': 'face_embeddings.pkl',
     'haar_cascade': 'haarcascade_frontalface_default.xml',
     'attendance_csv': 'attendance.csv',
     'offline_queue_file': 'offline_queue/pending_attendance.json',
@@ -94,3 +94,6 @@ FILE_PATHS = {
     'static_folder': 'static',
     'templates_folder': 'templates',
 }
+
+# Auto-checkout (hours before an open session is force-closed)
+AUTO_CHECKOUT_HOURS = int(os.environ.get('AUTO_CHECKOUT_HOURS', '9'))

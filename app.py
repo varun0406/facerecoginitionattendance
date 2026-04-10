@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 import logging
 import os
-from config import SERVER_CONFIG, OFFLINE_CONFIG, FILE_PATHS, TRAINING_CONFIG
+from config import SERVER_CONFIG, OFFLINE_CONFIG, FILE_PATHS, TRAINING_CONFIG, AUTO_CHECKOUT_HOURS
 from database import Database
 from offline_storage import OfflineStorage
 from face_recognition_service import FaceRecognitionService
@@ -31,6 +31,8 @@ else:
 try:
     Database.initialize_pool()
     Database.create_tables()
+    Database.ensure_attendance_clock_schema()
+    Database.ensure_checkout_type_column()
     logger.info("Database initialized successfully")
 except Exception as e:
     logger.error("Database initialization failed: %s", e)
@@ -57,6 +59,43 @@ def background_sync():
 # Start background sync thread
 sync_thread = threading.Thread(target=background_sync, daemon=True)
 sync_thread.start()
+
+
+def background_auto_checkout():
+    """Auto-close sessions open longer than AUTO_CHECKOUT_HOURS every 30 min."""
+    while True:
+        try:
+            closed = Database.auto_checkout_open_sessions(AUTO_CHECKOUT_HOURS)
+            if closed:
+                logger.info("Auto-checkout: closed %s session(s)", closed)
+        except Exception as e:
+            logger.error("Error in auto-checkout thread: %s", e)
+        time.sleep(1800)
+
+
+auto_checkout_thread = threading.Thread(target=background_auto_checkout, daemon=True)
+auto_checkout_thread.start()
+
+
+def background_auto_train():
+    """Retrain model in background when training_service signals pending."""
+    while True:
+        time.sleep(60)
+        try:
+            if training_service._pending_auto_train and not training_service.is_training:
+                logger.info("Auto-train triggered in background")
+                result = training_service.train_model()
+                if result.get("success"):
+                    face_service._load_classifier()
+                    logger.info("Auto-train complete: %s", result.get("message"))
+                else:
+                    logger.warning("Auto-train failed: %s", result.get("error"))
+        except Exception as e:
+            logger.error("Error in auto-train thread: %s", e)
+
+
+auto_train_thread = threading.Thread(target=background_auto_train, daemon=True)
+auto_train_thread.start()
 
 @app.route('/')
 def index():
@@ -145,16 +184,16 @@ def recognize_face():
 
 @app.route('/api/attendance', methods=['GET'])
 def get_attendance():
-    """Get attendance records, enriched with duration."""
+    """Get attendance records with optional date / date range filtering."""
     try:
         date = request.args.get('date')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
         limit = int(request.args.get('limit', 100))
-        records = Database.get_attendance_records(date=date, limit=limit)
-        return jsonify({
-            'success': True,
-            'records': records,
-            'count': len(records)
-        })
+        records = Database.get_attendance_records(
+            date=date, date_from=date_from, date_to=date_to, limit=limit
+        )
+        return jsonify({'success': True, 'records': records, 'count': len(records)})
     except Exception as e:
         logger.error(f"Error fetching attendance: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -165,15 +204,59 @@ def get_attendance_summary():
     """Per-user totals: days present and total hours."""
     try:
         date = request.args.get('date')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
         limit = int(request.args.get('limit', 500))
-        summary = Database.get_attendance_summary(date=date, limit=limit)
-        return jsonify({
-            'success': True,
-            'summary': summary,
-            'count': len(summary)
-        })
+        summary = Database.get_attendance_summary(
+            date=date, date_from=date_from, date_to=date_to, limit=limit
+        )
+        return jsonify({'success': True, 'summary': summary, 'count': len(summary)})
     except Exception as e:
         logger.error(f"Error fetching attendance summary: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/attendance/<int:record_id>', methods=['PUT'])
+def update_attendance_record(record_id):
+    """Manually edit clock-in / clock-out times."""
+    try:
+        data = request.get_json()
+        start_time = (data.get('start_time') or '').strip()
+        end_time = (data.get('end_time') or '').strip()
+        if not start_time:
+            return jsonify({'success': False, 'error': 'start_time is required'}), 400
+        ok = Database.update_attendance_record(record_id, start_time, end_time or None)
+        if not ok:
+            return jsonify({'success': False, 'error': 'Record not found'}), 404
+        return jsonify({'success': True, 'message': 'Attendance record updated'})
+    except Exception as e:
+        logger.error(f"Error updating attendance: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/attendance/<int:record_id>', methods=['DELETE'])
+def delete_attendance_record(record_id):
+    """Delete a single attendance record."""
+    try:
+        ok = Database.delete_attendance_record(record_id)
+        if not ok:
+            return jsonify({'success': False, 'error': 'Record not found'}), 404
+        return jsonify({'success': True, 'message': 'Record deleted'})
+    except Exception as e:
+        logger.error(f"Error deleting attendance record: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/status', methods=['GET'])
+def get_training_status():
+    """Current training state and pending auto-train flag."""
+    try:
+        return jsonify({
+            'success': True,
+            'is_training': training_service.is_training,
+            'pending_auto_train': training_service._pending_auto_train,
+        })
+    except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/status', methods=['GET'])
@@ -256,17 +339,52 @@ def update_vendor(vendor_id):
 
 @app.route('/api/vendors/<int:vendor_id>', methods=['DELETE'])
 def delete_vendor(vendor_id):
-    """Delete a vendor"""
+    """Delete vendor + cascade: attendance records + training images."""
     try:
-        if Database.delete_vendor(vendor_id):
+        # Delete training images from disk
+        img_result = training_service.delete_user_images(vendor_id)
+        had_images = img_result.get('deleted_count', 0) > 0
+
+        # Cascade-delete DB rows (attendance then vendor)
+        result = Database.delete_vendor_cascade(vendor_id)
+        if not result.get('success'):
             return jsonify({
-                'success': True,
-                'message': 'Vendor deleted successfully'
-            })
-        else:
-            return jsonify({'success': False, 'error': 'Vendor not found'}), 404
+                'success': False,
+                'error': result.get('error', 'Vendor not found')
+            }), 404
+
+        # Invalidate embeddings file if this user had training images
+        if had_images:
+            embeddings_path = FILE_PATHS.get('embeddings', 'face_embeddings.pkl')
+            if os.path.exists(embeddings_path):
+                os.remove(embeddings_path)
+            face_service._load_classifier()
+
+        return jsonify({
+            'success': True,
+            'message': 'User deleted',
+            'training_images_deleted': img_result.get('deleted_count', 0),
+            'attendance_records_deleted': result.get('attendance_records_deleted', 0),
+        })
     except Exception as e:
         logger.error(f"Error deleting vendor: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vendors/<int:vendor_id>/delete-info', methods=['GET'])
+def vendor_delete_info(vendor_id):
+    """Return counts of data that will be removed on delete (for the UI warning)."""
+    try:
+        img_count = training_service.get_user_image_count(vendor_id)
+        att_count = Database.get_vendor_attendance_count(vendor_id)
+        return jsonify({
+            'success': True,
+            'vendor_id': vendor_id,
+            'training_images': img_count,
+            'attendance_records': att_count,
+        })
+    except Exception as e:
+        logger.error(f"Error getting delete info: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # Training Endpoints

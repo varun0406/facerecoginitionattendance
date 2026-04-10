@@ -396,6 +396,46 @@ class Database:
             logger.warning("Attendance schema migration skipped or partial: %s", e)
 
     @classmethod
+    def ensure_checkout_type_column(cls):
+        """Add checkout_type column to attendance_records if missing."""
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                if DB_TYPE == "sqlite":
+                    cursor.execute("PRAGMA table_info(attendance_records)")
+                    cols = {row[1] for row in cursor.fetchall()}
+                    if "checkout_type" not in cols:
+                        cursor.execute(
+                            "ALTER TABLE attendance_records "
+                            "ADD COLUMN checkout_type VARCHAR(20) DEFAULT 'face'"
+                        )
+                elif DB_TYPE == "mysql":
+                    cursor.execute(
+                        """SELECT COUNT(*) FROM information_schema.COLUMNS
+                           WHERE TABLE_SCHEMA = DATABASE()
+                             AND TABLE_NAME = 'attendance_records'
+                             AND COLUMN_NAME = 'checkout_type'"""
+                    )
+                    if cursor.fetchone()[0] == 0:
+                        cursor.execute(
+                            "ALTER TABLE attendance_records "
+                            "ADD COLUMN checkout_type VARCHAR(20) DEFAULT 'face'"
+                        )
+                else:
+                    cursor.execute(
+                        """SELECT COUNT(*) FROM information_schema.columns
+                           WHERE table_name = 'attendance_records'
+                             AND column_name = 'checkout_type'"""
+                    )
+                    if cursor.fetchone()[0] == 0:
+                        cursor.execute(
+                            "ALTER TABLE attendance_records "
+                            "ADD COLUMN IF NOT EXISTS checkout_type VARCHAR(20) DEFAULT 'face'"
+                        )
+        except Exception as e:
+            logger.warning("checkout_type column migration skipped: %s", e)
+
+    @classmethod
     def _cursor(cls, conn, dictionary=False):
         if DB_TYPE == "mysql":
             return conn.cursor(dictionary=dictionary)
@@ -541,35 +581,42 @@ class Database:
         return True
 
     @classmethod
-    def get_attendance_records(cls, date=None, limit=100):
+    def get_attendance_records(cls, date=None, date_from=None, date_to=None, limit=100):
+        """
+        Fetch attendance records with optional filters.
+        - `date`      – exact match (DD/MM/YYYY)
+        - `date_from` / `date_to` – inclusive range (DD/MM/YYYY)
+        - `limit`     – max rows returned
+        """
+        conditions = []
+        params_list = []
         if date:
-            query = _sql(
-                """
+            conditions.append("date = %s")
+            params_list.append(date)
+        else:
+            if date_from:
+                conditions.append("date >= %s")
+                params_list.append(date_from)
+            if date_to:
+                conditions.append("date <= %s")
+                params_list.append(date_to)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = _sql(
+            f"""
             SELECT * FROM attendance_records
-            WHERE date = %s
+            {where}
             ORDER BY id DESC
             LIMIT %s
             """
-            )
-            params = (date, limit)
-        else:
-            query = _sql(
-                """
-            SELECT * FROM attendance_records
-            ORDER BY created_at DESC
-            LIMIT %s
-            """
-            )
-            params = (limit,)
+        )
+        params_list.append(limit)
         try:
             with cls.get_connection() as conn:
                 cur = cls._cursor(conn, dictionary=True)
-                cur.execute(query, params)
+                cur.execute(query, tuple(params_list))
                 rows = cur.fetchall()
-                if DB_TYPE == "mysql":
-                    records = rows
-                else:
-                    records = [_row_to_dict(r) for r in rows]
+                records = rows if DB_TYPE == "mysql" else [_row_to_dict(r) for r in rows]
             enriched = []
             for r in records:
                 rec = dict(r)
@@ -579,6 +626,7 @@ class Database:
                 rec["duration"] = dur_str
                 rec["duration_minutes"] = dur_min
                 rec["start_time"] = st
+                rec.setdefault("checkout_type", "face")
                 enriched.append(rec)
             return enriched
         except Exception as e:
@@ -586,9 +634,9 @@ class Database:
             return []
 
     @classmethod
-    def get_attendance_summary(cls, date=None, limit=500):
+    def get_attendance_summary(cls, date=None, date_from=None, date_to=None, limit=500):
         """Per-user totals: days present and total hours for a date range or all time."""
-        records = cls.get_attendance_records(date=date, limit=limit)
+        records = cls.get_attendance_records(date=date, date_from=date_from, date_to=date_to, limit=limit)
         summary = {}
         for r in records:
             uid = r.get("user_id")
@@ -717,6 +765,131 @@ class Database:
         except Exception as e:
             logger.error("Error deleting vendor: %s", e)
             return False
+
+    @classmethod
+    def auto_checkout_open_sessions(cls, cutoff_hours: int = 9) -> int:
+        """
+        Close all attendance sessions where start_time is more than `cutoff_hours` ago
+        and end_time is still NULL. Returns the number of records closed.
+        """
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        closed = 0
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                # Fetch all open sessions (end_time IS NULL)
+                q_select = _sql(
+                    "SELECT id, date, start_time FROM attendance_records "
+                    "WHERE end_time IS NULL AND start_time IS NOT NULL"
+                )
+                cursor.execute(q_select)
+                rows = cursor.fetchall()
+                for row in rows:
+                    rec_id, date_str, start_str = row[0], row[1], row[2]
+                    if not date_str or not start_str:
+                        continue
+                    try:
+                        # Parse date in DD/MM/YYYY format
+                        for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+                            try:
+                                rec_date = datetime.strptime(date_str, fmt).date()
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            continue
+                        rec_start = datetime.strptime(
+                            f"{rec_date} {start_str}", "%Y-%m-%d %H:%M:%S"
+                        )
+                        cutoff_dt = rec_start + timedelta(hours=cutoff_hours)
+                        if now >= cutoff_dt:
+                            checkout_time = cutoff_dt.strftime("%H:%M:%S")
+                            q_update = _sql(
+                                "UPDATE attendance_records "
+                                "SET end_time = %s, checkout_type = 'auto' "
+                                "WHERE id = %s"
+                            )
+                            cursor.execute(q_update, (checkout_time, rec_id))
+                            closed += 1
+                    except Exception as ex:
+                        logger.debug("auto_checkout row %s: %s", rec_id, ex)
+        except Exception as e:
+            logger.error("auto_checkout_open_sessions error: %s", e)
+        if closed:
+            logger.info("Auto-checkout closed %s open session(s)", closed)
+        return closed
+
+    @classmethod
+    def update_attendance_record(
+        cls, record_id: int, start_time: str, end_time: str
+    ) -> bool:
+        """Manually update clock-in/clock-out times; marks checkout_type = 'manual'."""
+        query = _sql(
+            "UPDATE attendance_records "
+            "SET start_time = %s, end_time = %s, checkout_type = 'manual' "
+            "WHERE id = %s"
+        )
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (start_time, end_time, record_id))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Error updating attendance record %s: %s", record_id, e)
+            return False
+
+    @classmethod
+    def delete_attendance_record(cls, record_id: int) -> bool:
+        """Delete a single attendance record by id."""
+        query = _sql("DELETE FROM attendance_records WHERE id = %s")
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (record_id,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Error deleting attendance record %s: %s", record_id, e)
+            return False
+
+    @classmethod
+    def delete_vendor_cascade(cls, vendor_id: int) -> dict:
+        """Delete vendor + all their attendance records atomically."""
+        del_att = _sql(
+            "DELETE FROM attendance_records WHERE user_id = %s"
+        )
+        del_vnd = _sql("DELETE FROM vendor_details WHERE vendor_id = %s")
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(del_att, (vendor_id,))
+                att_deleted = cursor.rowcount
+                cursor.execute(del_vnd, (vendor_id,))
+                vnd_deleted = cursor.rowcount
+            return {
+                "success": vnd_deleted > 0,
+                "attendance_records_deleted": att_deleted,
+                "vendor_deleted": vnd_deleted > 0,
+            }
+        except Exception as e:
+            logger.error("Error in cascade delete for vendor %s: %s", vendor_id, e)
+            return {"success": False, "error": str(e)}
+
+    @classmethod
+    def get_vendor_attendance_count(cls, vendor_id: int) -> int:
+        """Count of attendance records for a vendor (used in delete warning)."""
+        query = _sql(
+            "SELECT COUNT(*) FROM attendance_records WHERE user_id = %s"
+        )
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (vendor_id,))
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error("Error counting attendance for vendor %s: %s", vendor_id, e)
+            return 0
 
     @classmethod
     def get_all_vendors(cls):
