@@ -23,6 +23,8 @@ data/
 # Offline storage
 offline_queue/
 *.json
+!frontend/package.json
+!frontend/package-lock.json
 
 # Logs
 *.log
