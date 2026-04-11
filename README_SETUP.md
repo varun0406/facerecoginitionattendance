@@ -1,7 +1,9 @@
 # Face Recognition Attendance System - Setup Guide
 
 ## Overview
+
 A modern web-based face recognition attendance system optimized for:
+
 - **VM Deployment** - Runs on virtual machines
 - **Mobile/Tablet Access** - Responsive React frontend
 - **PostgreSQL Database** - Enterprise-grade database
@@ -12,12 +14,14 @@ A modern web-based face recognition attendance system optimized for:
 ## Architecture
 
 ### Backend (Python/Flask)
+
 - Flask REST API
 - PostgreSQL database
 - Offline storage with sync
 - Face recognition service
 
 ### Frontend (React/Vite)
+
 - Modern React application
 - Mobile-responsive design
 - Real-time camera access
@@ -68,6 +72,7 @@ npm run build
 ### 4. Configure Application
 
 Edit `config.py`:
+
 - Update PostgreSQL connection details
 - Adjust face recognition parameters
 - Configure server host/port for VM access
@@ -77,11 +82,13 @@ Edit `config.py`:
 ### Development Mode
 
 **Backend:**
+
 ```bash
 python app.py
 ```
 
 **Frontend (separate terminal):**
+
 ```bash
 cd frontend
 npm run dev
@@ -90,17 +97,20 @@ npm run dev
 ### Production Mode (VM Deployment)
 
 **Build frontend:**
+
 ```bash
 cd frontend
 npm run build
 ```
 
 **Run backend (accessible from network):**
+
 ```bash
 python app.py
 ```
 
 The app will be available at:
+
 - Backend API: `http://VM_IP:8002/api`
 - Frontend: `http://VM_IP:8002/` (if serving static files)
 
@@ -114,23 +124,27 @@ The app will be available at:
 ## Features
 
 ### 1. 20-Second Timeout
+
 - Maximum processing time per user
 - Automatic timeout handling
 - Clear error messages
 
 ### 2. Offline Mode
+
 - Local queue storage
 - Automatic sync when online
 - Manual sync option
 - Status indicators
 
 ### 3. Mobile Optimized
+
 - Responsive design
 - Touch-friendly interface
 - Camera access via browser
 - Works on phones/tablets
 
 ### 4. Indian Face Optimization
+
 - Lower confidence threshold (75%)
 - Optimized detection parameters
 - Better accuracy for Indian faces
@@ -158,16 +172,19 @@ The app will be available at:
 ## Troubleshooting
 
 ### Camera Not Working
+
 - Ensure HTTPS or localhost (browsers require secure context)
 - Check browser permissions
 - Try different browser
 
 ### Database Connection Failed
+
 - Verify PostgreSQL is running
 - Check credentials in config.py
 - Ensure database exists
 
 ### Face Recognition Not Working
+
 - Ensure classifier.xml exists
 - Check haarcascade_frontalface_default.xml is present
 - Train model with Indian faces for better accuracy
@@ -186,5 +203,4 @@ The app will be available at:
 - Offline records sync every 60 seconds when online
 - Maximum queue size: 1000 records
 - Processing optimized for low-latency networks
-
 

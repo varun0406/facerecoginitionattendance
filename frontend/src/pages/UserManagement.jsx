@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Plus, Edit, Trash2, User, AlertTriangle, X, CheckCircle } from 'lucide-react'
 import axios from 'axios'
+import { useAuth } from '../context/AuthContext'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002/api'
 
@@ -49,6 +50,7 @@ function DeleteModal({ vendor, deleteInfo, onConfirm, onCancel, deleting }) {
 }
 
 function UserManagement() {
+  const { isAdmin } = useAuth()
   const [vendors, setVendors] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editingVendor, setEditingVendor] = useState(null)
@@ -84,6 +86,10 @@ function UserManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (editingVendor && !isAdmin) {
+      showToast('Only an administrator can edit users.', 'error')
+      return
+    }
     setSaving(true)
     try {
       const payload = { ...formData, vendor_id: Number(formData.vendor_id) }
@@ -184,6 +190,12 @@ function UserManagement() {
           <Plus size={20} /> Add User
         </button>
       </div>
+
+      {!isAdmin && (
+        <p className="page-description" style={{ marginBottom: '1rem', color: '#94a3b8' }}>
+          You can register new people for attendance. Changing or removing accounts is limited to administrators.
+        </p>
+      )}
 
       {showForm && (
         <div className="form-container">
@@ -293,15 +305,17 @@ function UserManagement() {
                   {vendor.number && <p><strong>Contact:</strong> {vendor.number}</p>}
                   {vendor.gender && <p><strong>Gender:</strong> {vendor.gender}</p>}
                 </div>
-                <div className="user-card-actions">
-                  <button className="btn-icon" title="Edit" onClick={() => handleEdit(vendor)}>
-                    <Edit size={18} />
-                  </button>
-                  <button className="btn-icon danger" title="Delete"
-                    onClick={() => openDeleteModal(vendor)}>
-                    <Trash2 size={18} />
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="user-card-actions">
+                    <button className="btn-icon" title="Edit" onClick={() => handleEdit(vendor)}>
+                      <Edit size={18} />
+                    </button>
+                    <button className="btn-icon danger" title="Delete"
+                      onClick={() => openDeleteModal(vendor)}>
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

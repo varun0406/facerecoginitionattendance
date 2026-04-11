@@ -552,9 +552,9 @@ def get_vendors():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/vendors', methods=['POST'])
-@admin_required
+@login_required
 def add_vendor():
-    """Add a new vendor/user"""
+    """Add a new vendor/user (any signed-in staff or admin)."""
     try:
         data = request.json
         if not data or 'vendor_id' not in data or 'name' not in data:

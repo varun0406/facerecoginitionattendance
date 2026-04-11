@@ -62,13 +62,13 @@ function Navigation() {
       <Link to="/" className={`nav-link ${isActive('/') ? 'active' : ''}`}>
         <span>Attendance</span>
       </Link>
+      <Link to="/users" className={`nav-link ${isActive('/users') ? 'active' : ''}`}>
+        <span>Users</span>
+      </Link>
       {isAdmin && (
         <>
           <Link to="/staff" className={`nav-link ${isActive('/staff') ? 'active' : ''}`}>
             <span>Staff</span>
-          </Link>
-          <Link to="/users" className={`nav-link ${isActive('/users') ? 'active' : ''}`}>
-            <span>Users</span>
           </Link>
           <Link to="/training" className={`nav-link ${isActive('/training') ? 'active' : ''}`}>
             <span>Training</span>
@@ -151,9 +151,9 @@ function AppRoutes() {
       <Route path="/" element={<ProtectedLayout />}>
         <Route index element={<Attendance />} />
         <Route path="records" element={<AttendanceRecords />} />
+        <Route path="users" element={<UserManagement />} />
         <Route element={<RequireAdmin />}>
           <Route path="staff" element={<StaffAccounts />} />
-          <Route path="users" element={<UserManagement />} />
           <Route path="training" element={<TrainingCapture />} />
           <Route path="train-model" element={<ModelTraining />} />
         </Route>
