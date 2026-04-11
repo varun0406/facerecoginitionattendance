@@ -224,11 +224,17 @@ class TrainingService:
             cv2.imwrite(filepath, face_resized)
             logger.info("Saved training image: %s", filename)
 
-            # Flag auto-train when threshold just met or every 5 images thereafter
             min_n = TRAINING_CONFIG["min_images_per_user"]
-            if image_count >= min_n and (image_count == min_n or (image_count - min_n) % 5 == 0):
+            # Queue background retrain whenever the whole dataset meets train rules
+            # (so each new photo can refresh the model once everyone has enough samples).
+            dataset_ok, _ = self._validate_dataset_for_training()
+            if dataset_ok and _FR_AVAILABLE:
                 self._pending_auto_train = True
-                logger.info("Auto-train flagged after %s images for user %s", image_count, user_id)
+                logger.info(
+                    "Auto-train queued after save (user %s now has %s images)",
+                    user_id,
+                    image_count,
+                )
 
             return {
                 "success": True,
@@ -240,6 +246,11 @@ class TrainingService:
                 "message": (
                     f"Saved image {image_count}/{TRAINING_CONFIG['max_images_per_user']} — "
                     f"aim for at least {min_n} varied shots."
+                    + (
+                        " Model will retrain automatically in the background."
+                        if self._pending_auto_train
+                        else ""
+                    )
                 ),
             }
         except Exception as e:
@@ -260,6 +271,7 @@ class TrainingService:
 
     def train_model(self) -> dict:
         if not _FR_AVAILABLE:
+            self._pending_auto_train = False
             return {
                 "success": False,
                 "error": (
@@ -269,6 +281,7 @@ class TrainingService:
             }
         ok, reason = self._validate_dataset_for_training()
         if not ok:
+            self._pending_auto_train = False
             return {"success": False, "error": reason}
 
         with self._training_lock:
@@ -299,9 +312,17 @@ class TrainingService:
                     skipped += 1
                     continue
                 rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-                encs = _fr.face_encodings(rgb, model="small")
+                # Saved files are already face crops (~200×200). Running the default
+                # detector on them often fails; treat the whole image as the face region
+                # (same idea as face_recognition_service when a box is already known).
+                h, w = rgb.shape[:2]
+                if h < 8 or w < 8:
+                    skipped += 1
+                    continue
+                whole = [(0, w, h, 0)]  # top, right, bottom, left (face_recognition / CSS order)
+                encs = _fr.face_encodings(rgb, known_face_locations=whole, model="small")
                 if not encs:
-                    logger.warning("No face encoding found in %s — skipping", image_file)
+                    logger.debug("No face encoding in %s (unusable crop) — skipping", image_file)
                     skipped += 1
                     continue
                 embeddings.setdefault(uid, []).append(encs[0])

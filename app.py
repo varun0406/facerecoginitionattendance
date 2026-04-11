@@ -144,7 +144,6 @@ auto_checkout_thread.start()
 def background_auto_train():
     """Retrain model in background when training_service signals pending."""
     while True:
-        time.sleep(60)
         try:
             if training_service._pending_auto_train and not training_service.is_training:
                 logger.info("Auto-train triggered in background")
@@ -156,6 +155,8 @@ def background_auto_train():
                     logger.warning("Auto-train failed: %s", result.get("error"))
         except Exception as e:
             logger.error("Error in auto-train thread: %s", e)
+        # Poll quickly while a train is queued; back off when idle
+        time.sleep(3 if training_service._pending_auto_train else 20)
 
 
 auto_train_thread = threading.Thread(target=background_auto_train, daemon=True)
