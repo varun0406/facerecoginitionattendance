@@ -13,6 +13,7 @@ import AttendanceRecords from './pages/AttendanceRecords'
 import UserManagement from './pages/UserManagement'
 import TrainingCapture from './pages/TrainingCapture'
 import ModelTraining from './pages/ModelTraining'
+import StaffAccounts from './pages/StaffAccounts'
 import Login from './pages/Login'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { isCameraAllowedByBrowser } from './utils/camera'
@@ -63,6 +64,9 @@ function Navigation() {
       </Link>
       {isAdmin && (
         <>
+          <Link to="/staff" className={`nav-link ${isActive('/staff') ? 'active' : ''}`}>
+            <span>Staff</span>
+          </Link>
           <Link to="/users" className={`nav-link ${isActive('/users') ? 'active' : ''}`}>
             <span>Users</span>
           </Link>
@@ -148,6 +152,7 @@ function AppRoutes() {
         <Route index element={<Attendance />} />
         <Route path="records" element={<AttendanceRecords />} />
         <Route element={<RequireAdmin />}>
+          <Route path="staff" element={<StaffAccounts />} />
           <Route path="users" element={<UserManagement />} />
           <Route path="training" element={<TrainingCapture />} />
           <Route path="train-model" element={<ModelTraining />} />

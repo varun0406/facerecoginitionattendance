@@ -7,6 +7,7 @@ import os
 from contextlib import contextmanager
 
 from config import DATABASE_CONFIG
+from timezone_util import enrich_attendance_display
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -383,6 +384,73 @@ class Database:
             return False
 
     @classmethod
+    def list_app_users(cls):
+        """Return web login accounts (no password hashes)."""
+        q = _sql(
+            "SELECT id, username, role, created_at FROM app_users ORDER BY role DESC, username"
+        )
+        try:
+            with cls.get_connection() as conn:
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(q)
+                rows = cur.fetchall()
+                return rows if DB_TYPE == "mysql" else [_row_to_dict(r) for r in rows]
+        except Exception as e:
+            logger.error("list_app_users: %s", e)
+            return []
+
+    @classmethod
+    def count_app_users_by_role(cls, role: str) -> int:
+        q = _sql("SELECT COUNT(*) FROM app_users WHERE role = %s")
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(q, (role,))
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error("count_app_users_by_role: %s", e)
+            return 0
+
+    @classmethod
+    def get_app_user_by_id(cls, user_id: int):
+        q = _sql(
+            "SELECT id, username, password_hash, role FROM app_users WHERE id = %s"
+        )
+        try:
+            with cls.get_connection() as conn:
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(q, (user_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return row if DB_TYPE == "mysql" else _row_to_dict(row)
+        except Exception as e:
+            logger.error("get_app_user_by_id: %s", e)
+            return None
+
+    @classmethod
+    def delete_app_user_by_id(cls, user_id: int) -> tuple:
+        """
+        Delete a web login user. Returns (True, "") on success,
+        (False, reason) if blocked (last admin, etc.).
+        """
+        row = cls.get_app_user_by_id(user_id)
+        if not row:
+            return False, "User not found"
+        if row.get("role") == "admin" and cls.count_app_users_by_role("admin") <= 1:
+            return False, "Cannot delete the last administrator"
+        q = _sql("DELETE FROM app_users WHERE id = %s")
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(q, (user_id,))
+                return (True, "") if cursor.rowcount > 0 else (False, "User not found")
+        except Exception as e:
+            logger.error("delete_app_user_by_id: %s", e)
+            return False, str(e)
+
+    @classmethod
     def bootstrap_web_users_from_env(cls):
         """Create first admin (and optional staff) from env when app_users is empty."""
         from werkzeug.security import generate_password_hash
@@ -739,7 +807,7 @@ class Database:
                 rec["duration_minutes"] = dur_min
                 rec["start_time"] = st
                 rec.setdefault("checkout_type", "face")
-                enriched.append(rec)
+                enriched.append(enrich_attendance_display(rec))
             return enriched
         except Exception as e:
             logger.error("Error fetching attendance: %s", e)
@@ -885,7 +953,9 @@ class Database:
         and end_time is still NULL. Returns the number of records closed.
         """
         from datetime import datetime, timedelta
-        now = datetime.now()
+        from timezone_util import IST, now_attendance_datetime
+
+        now = now_attendance_datetime()
         closed = 0
         try:
             with cls.get_connection() as conn:
@@ -911,12 +981,25 @@ class Database:
                                 continue
                         else:
                             continue
-                        rec_start = datetime.strptime(
-                            f"{rec_date} {start_str}", "%Y-%m-%d %H:%M:%S"
+                        parts = (start_str or "").strip().split(":")
+                        try:
+                            h = int(parts[0])
+                            m = int(parts[1]) if len(parts) > 1 else 0
+                            s = int(parts[2]) if len(parts) > 2 else 0
+                        except (ValueError, IndexError):
+                            continue
+                        rec_start = datetime(
+                            rec_date.year,
+                            rec_date.month,
+                            rec_date.day,
+                            h,
+                            m,
+                            s,
+                            tzinfo=IST,
                         )
                         cutoff_dt = rec_start + timedelta(hours=cutoff_hours)
                         if now >= cutoff_dt:
-                            checkout_time = cutoff_dt.strftime("%H:%M:%S")
+                            checkout_time = cutoff_dt.astimezone(IST).strftime("%H:%M:%S")
                             q_update = _sql(
                                 "UPDATE attendance_records "
                                 "SET end_time = %s, checkout_type = 'auto' "

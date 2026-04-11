@@ -876,6 +876,27 @@
   padding: 1.5rem 1rem;
 }
 
+.records-ist-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.45;
+  max-width: 52rem;
+}
+.records-ist-note code {
+  font-size: 0.72rem;
+  background: rgba(0,0,0,0.25);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.staff-accounts-page .staff-create-form {
+  margin-bottom: 1.5rem;
+}
+.staff-accounts-page .login-info-banner {
+  margin-bottom: 0.75rem;
+}
+
 .records-header {
   display: flex;
   align-items: center;

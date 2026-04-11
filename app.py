@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timedelta
 import logging
 import os
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import (
     SERVER_CONFIG,
@@ -165,11 +165,14 @@ auto_train_thread.start()
 @app.route("/api/auth/config", methods=["GET"])
 def auth_config_public():
     """Tell the SPA whether login and browser geolocation are required."""
+    tz = os.environ.get("DISPLAY_TIMEZONE", "Asia/Kolkata")
     return jsonify(
         {
             "success": True,
             "auth_required": AUTH_ENABLED,
             "geofence_required": GEOFENCE_ACTIVE,
+            "display_timezone": tz,
+            "display_timezone_label": "IST" if "Kolkata" in tz else tz,
         }
     )
 
@@ -256,6 +259,54 @@ def auth_login():
 def auth_logout():
     session.clear()
     return jsonify({"success": True})
+
+
+@app.route("/api/auth/users", methods=["GET"])
+@admin_required
+def list_web_users():
+    """Admin: list staff + admin logins (no passwords)."""
+    users = Database.list_app_users()
+    # Normalise for JSON (SQLite may return bytes for created_at)
+    out = []
+    for u in users:
+        row = dict(u)
+        if row.get("created_at") is not None:
+            row["created_at"] = str(row["created_at"])
+        out.append(row)
+    return jsonify({"success": True, "users": out})
+
+
+@app.route("/api/auth/users", methods=["POST"])
+@admin_required
+def create_staff_user():
+    """Admin: create a staff login (role user). Staff may use attendance + view records only."""
+    data = request.get_json() or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or len(username) < 2:
+        return jsonify({"success": False, "error": "Username must be at least 2 characters"}), 400
+    if len(password) < 8:
+        return jsonify(
+            {"success": False, "error": "Password must be at least 8 characters"}
+        ), 400
+    if Database.get_app_user_by_username(username):
+        return jsonify({"success": False, "error": "Username already exists"}), 409
+    h = generate_password_hash(password)
+    if not Database.insert_app_user(username, h, "user"):
+        return jsonify({"success": False, "error": "Could not create user"}), 500
+    return jsonify({"success": True, "message": f"Staff account {username!r} created"})
+
+
+@app.route("/api/auth/users/<int:user_id>", methods=["DELETE"])
+@admin_required
+def delete_web_user(user_id):
+    """Admin: remove a staff (or admin) login; cannot delete yourself or last admin."""
+    if user_id == session.get("user_id"):
+        return jsonify({"success": False, "error": "You cannot delete your own account"}), 403
+    ok, err = Database.delete_app_user_by_id(user_id)
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+    return jsonify({"success": True, "message": "User deleted"})
 
 
 def _resolved_asset_file(static_path, path):

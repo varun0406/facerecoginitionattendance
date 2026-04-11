@@ -9,12 +9,12 @@ import base64
 import os
 import pickle
 from typing import Dict
-from datetime import datetime
 import time
 import logging
 from config import FACE_RECOGNITION_CONFIG, PERFORMANCE_CONFIG, FILE_PATHS
 from database import Database
 from offline_storage import OfflineStorage
+from timezone_util import now_attendance_date_str, now_attendance_time_str
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -193,10 +193,9 @@ class FaceRecognitionService:
         }
 
     def mark_attendance(self, user_id: int, name: str, department: str, address: str) -> Dict:
-        """Clock-in or clock-out for the recognised person."""
-        now = datetime.now()
-        time_str = now.strftime("%H:%M:%S")
-        date_str = now.strftime("%d/%m/%Y")
+        """Clock-in or clock-out for the recognised person (wall clock in IST / DISPLAY_TIMEZONE)."""
+        time_str = now_attendance_time_str()
+        date_str = now_attendance_date_str()
 
         session = Database.get_today_session(user_id, date_str)
         start_display = (session or {}).get("start_time") or (session or {}).get("time")

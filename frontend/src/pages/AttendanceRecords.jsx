@@ -37,11 +37,17 @@ function checkoutBadge(type) {
 }
 
 function downloadCSV(records) {
-  const header = ['Date', 'ID', 'Name', 'Dept', 'Clock-in', 'Clock-out', 'Duration', 'Type', 'Status']
+  const header = ['Date (IST)', 'ID', 'Name', 'Dept', 'Clock-in (IST)', 'Clock-out (IST)', 'Duration', 'Type', 'Status']
   const rows = records.map(r => [
-    r.date, r.user_id, r.name, r.department || '',
-    r.start_time || '', r.end_time || '', r.duration || '',
-    r.checkout_type || 'face', r.status || 'Present',
+    r.date_display || r.date,
+    r.user_id,
+    r.name,
+    r.department || '',
+    r.start_time_display || r.start_time || '',
+    r.end_time_display || r.end_time || '',
+    r.duration || '',
+    r.checkout_type || 'face',
+    r.status || 'Present',
   ])
   const csv = [header, ...rows]
     .map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -58,8 +64,8 @@ function downloadCSV(records) {
 // ── inline-edit row ────────────────────────────────────────────────────────
 
 function EditRow({ record, onSave, onCancel }) {
-  const [start, setStart] = useState(record.start_time || '')
-  const [end, setEnd] = useState(record.end_time || '')
+  const [start, setStart] = useState(record.start_time_display || record.start_time || '')
+  const [end, setEnd] = useState(record.end_time_display || record.end_time || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -81,7 +87,7 @@ function EditRow({ record, onSave, onCancel }) {
 
   return (
     <tr className="row-edit">
-      <td>{record.date}</td>
+      <td>{record.date_display || record.date}</td>
       <td>
         <span className="name-cell">{record.name}</span>
         <span className="id-badge">#{record.user_id}</span>
@@ -195,6 +201,10 @@ export default function AttendanceRecords() {
     <div className="records-page">
       <div className="records-header">
         <h2>Attendance Records</h2>
+        <p className="records-ist-note">
+          Dates and clock-in/out times are shown in <strong>India Standard Time (IST)</strong>. New punches are recorded in IST; enable{' '}
+          <code>ATTENDANCE_LEGACY_STORED_AS_UTC</code> on the server only if older rows were saved in UTC and need converting for display.
+        </p>
 
         <div className="records-controls">
           <div className="date-range-filter">
@@ -283,11 +293,11 @@ export default function AttendanceRecords() {
                 <table className="att-table">
                   <thead>
                     <tr>
-                      <th>Date</th>
+                      <th>Date (IST)</th>
                       <th>Name</th>
                       <th>Dept</th>
-                      <th>Clock-in</th>
-                      <th>Clock-out</th>
+                      <th>Clock-in (IST)</th>
+                      <th>Clock-out (IST)</th>
                       <th>Duration</th>
                       <th>Type</th>
                       {isAdmin && <th>Actions</th>}
@@ -304,15 +314,15 @@ export default function AttendanceRecords() {
                         />
                       ) : (
                         <tr key={r.id} className={r.end_time ? '' : 'row-open'}>
-                          <td>{r.date}</td>
+                          <td>{r.date_display || r.date}</td>
                           <td>
                             <span className="name-cell">{r.name}</span>
                             <span className="id-badge">#{r.user_id}</span>
                           </td>
                           <td>{r.department || '—'}</td>
-                          <td className="time-cell">{r.start_time || '—'}</td>
+                          <td className="time-cell">{r.start_time_display || r.start_time || '—'}</td>
                           <td className="time-cell">
-                            {r.end_time || <span className="text-muted">pending</span>}
+                            {(r.end_time_display || r.end_time) || <span className="text-muted">pending</span>}
                           </td>
                           <td>
                             {r.duration
