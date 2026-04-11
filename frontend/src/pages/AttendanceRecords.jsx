@@ -4,6 +4,7 @@ import {
   Pencil, Trash2, Check, X, ChevronDown,
 } from 'lucide-react'
 import axios from 'axios'
+import { useAuth } from '../context/AuthContext'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8002/api'
 const PAGE_SIZE = 100
@@ -120,6 +121,7 @@ function EditRow({ record, onSave, onCancel }) {
 // ── main component ─────────────────────────────────────────────────────────
 
 export default function AttendanceRecords() {
+  const { isAdmin } = useAuth()
   const [tab, setTab] = useState('records')
 
   const [records, setRecords] = useState([])
@@ -288,12 +290,12 @@ export default function AttendanceRecords() {
                       <th>Clock-out</th>
                       <th>Duration</th>
                       <th>Type</th>
-                      <th>Actions</th>
+                      {isAdmin && <th>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {records.map(r =>
-                      editingId === r.id ? (
+                      isAdmin && editingId === r.id ? (
                         <EditRow
                           key={r.id}
                           record={r}
@@ -318,19 +320,21 @@ export default function AttendanceRecords() {
                               : <span className="text-muted">—</span>}
                           </td>
                           <td>{checkoutBadge(r.checkout_type)}</td>
-                          <td>
-                            <div className="row-actions">
-                              <button className="btn-icon" title="Edit" onClick={() => setEditingId(r.id)}>
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                className="btn-icon danger" title="Delete"
-                                disabled={deletingId === r.id}
-                                onClick={() => deleteRecord(r.id)}>
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </td>
+                          {isAdmin && (
+                            <td>
+                              <div className="row-actions">
+                                <button className="btn-icon" title="Edit" onClick={() => setEditingId(r.id)}>
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  className="btn-icon danger" title="Delete"
+                                  disabled={deletingId === r.id}
+                                  onClick={() => deleteRecord(r.id)}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       )
                     )}

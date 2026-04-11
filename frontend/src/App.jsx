@@ -1,10 +1,20 @@
 import React, { useEffect, useState } from 'react'
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Link,
+  useLocation,
+  Navigate,
+  Outlet,
+} from 'react-router-dom'
 import Attendance from './pages/Attendance'
 import AttendanceRecords from './pages/AttendanceRecords'
 import UserManagement from './pages/UserManagement'
 import TrainingCapture from './pages/TrainingCapture'
 import ModelTraining from './pages/ModelTraining'
+import Login from './pages/Login'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { isCameraAllowedByBrowser } from './utils/camera'
 import './App.css'
 
@@ -42,50 +52,117 @@ function SecureContextBanner() {
 
 function Navigation() {
   const location = useLocation()
-  
+  const { isAdmin, user, logout } = useAuth()
+
   const isActive = (path) => location.pathname === path
-  
+
   return (
     <nav className="navigation">
       <Link to="/" className={`nav-link ${isActive('/') ? 'active' : ''}`}>
         <span>Attendance</span>
       </Link>
-      <Link to="/users" className={`nav-link ${isActive('/users') ? 'active' : ''}`}>
-        <span>Users</span>
-      </Link>
-      <Link to="/training" className={`nav-link ${isActive('/training') ? 'active' : ''}`}>
-        <span>Training</span>
-      </Link>
+      {isAdmin && (
+        <>
+          <Link to="/users" className={`nav-link ${isActive('/users') ? 'active' : ''}`}>
+            <span>Users</span>
+          </Link>
+          <Link to="/training" className={`nav-link ${isActive('/training') ? 'active' : ''}`}>
+            <span>Training</span>
+          </Link>
+          <Link to="/train-model" className={`nav-link ${isActive('/train-model') ? 'active' : ''}`}>
+            <span>Train Model</span>
+          </Link>
+        </>
+      )}
       <Link to="/records" className={`nav-link ${isActive('/records') ? 'active' : ''}`}>
         <span>Records</span>
       </Link>
-      <Link to="/train-model" className={`nav-link ${isActive('/train-model') ? 'active' : ''}`}>
-        <span>Train Model</span>
-      </Link>
+      <div className="nav-trailing">
+        {user && (
+          <span className="nav-user" title={user.role === 'admin' ? 'Administrator' : 'Staff'}>
+            {user.username}
+          </span>
+        )}
+        <button type="button" className="btn btn-secondary btn-sm nav-logout" onClick={() => logout()}>
+          Log out
+        </button>
+      </div>
     </nav>
+  )
+}
+
+function ProtectedLayout() {
+  const location = useLocation()
+  const { ready, authRequired, authenticated } = useAuth()
+
+  if (!ready) {
+    return (
+      <div className="app app-loading">
+        <p>Loading…</p>
+      </div>
+    )
+  }
+
+  if (authRequired && !authenticated) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  return (
+    <div className="app">
+      <header className="header">
+        <h1>Face Recognition Attendance</h1>
+        <SecureContextBanner />
+      </header>
+      <Navigation />
+      <main className="main-content">
+        <Outlet />
+      </main>
+    </div>
+  )
+}
+
+function RequireAdmin() {
+  const { ready, authRequired, authenticated, isAdmin } = useAuth()
+  if (!ready) {
+    return (
+      <div className="app app-loading">
+        <p>Loading…</p>
+      </div>
+    )
+  }
+  if (authRequired && !authenticated) {
+    return <Navigate to="/login" replace />
+  }
+  if (!isAdmin) {
+    return <Navigate to="/" replace />
+  }
+  return <Outlet />
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route element={<ProtectedLayout />}>
+        <Route path="/" element={<Attendance />} />
+        <Route path="/records" element={<AttendanceRecords />} />
+        <Route element={<RequireAdmin />}>
+          <Route path="/users" element={<UserManagement />} />
+          <Route path="/training" element={<TrainingCapture />} />
+          <Route path="/train-model" element={<ModelTraining />} />
+        </Route>
+      </Route>
+    </Routes>
   )
 }
 
 function App() {
   return (
-    <Router basename={import.meta.env.BASE_URL}>
-      <div className="app">
-        <header className="header">
-          <h1>Face Recognition Attendance</h1>
-          <SecureContextBanner />
-        </header>
-        <Navigation />
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Attendance />} />
-            <Route path="/users" element={<UserManagement />} />
-            <Route path="/training" element={<TrainingCapture />} />
-            <Route path="/records" element={<AttendanceRecords />} />
-            <Route path="/train-model" element={<ModelTraining />} />
-          </Routes>
-        </main>
-      </div>
-    </Router>
+    <AuthProvider>
+      <Router basename={import.meta.env.BASE_URL}>
+        <AppRoutes />
+      </Router>
+    </AuthProvider>
   )
 }
 

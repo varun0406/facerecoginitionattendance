@@ -97,3 +97,20 @@ FILE_PATHS = {
 
 # Auto-checkout (hours before an open session is force-closed)
 AUTO_CHECKOUT_HOURS = int(os.environ.get('AUTO_CHECKOUT_HOURS', '9'))
+
+# Web login (Flask session). Set FLASK_SECRET_KEY in production.
+AUTH_CONFIG = {
+    'enabled': os.environ.get('AUTH_ENABLED', 'true').lower() in ('1', 'true', 'yes'),
+    'secret_key': os.environ.get('FLASK_SECRET_KEY')
+    or os.environ.get('SECRET_KEY')
+    or 'change-me-in-production',
+}
+
+# Geofence: browser sends GPS at login; server checks distance to center.
+# Set GEOFENCE_ENABLED=true and valid WGS84 center + radius.
+GEOFENCE_CONFIG = {
+    'enabled': os.environ.get('GEOFENCE_ENABLED', 'false').lower() in ('1', 'true', 'yes'),
+    'latitude': float(os.environ.get('GEOFENCE_LATITUDE', '0') or 0),
+    'longitude': float(os.environ.get('GEOFENCE_LONGITUDE', '0') or 0),
+    'radius_meters': float(os.environ.get('GEOFENCE_RADIUS_METERS', '150')),
+}

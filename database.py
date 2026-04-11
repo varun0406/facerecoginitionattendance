@@ -294,6 +294,118 @@ class Database:
             logger.error("Error creating tables: %s", e)
             raise
         cls.ensure_attendance_clock_schema()
+        cls.ensure_app_users_table()
+
+    @classmethod
+    def ensure_app_users_table(cls):
+        """Web login accounts (separate from vendor_details / face users)."""
+        if DB_TYPE == "sqlite":
+            ddl = """
+            CREATE TABLE IF NOT EXISTS app_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username VARCHAR(64) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(20) NOT NULL DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        elif DB_TYPE == "mysql":
+            ddl = """
+            CREATE TABLE IF NOT EXISTS app_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(64) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(20) NOT NULL DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        else:
+            ddl = """
+            CREATE TABLE IF NOT EXISTS app_users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(64) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(20) NOT NULL DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(ddl)
+            logger.info("app_users table ensured")
+        except Exception as e:
+            logger.warning("app_users table migration: %s", e)
+
+    @classmethod
+    def count_app_users(cls) -> int:
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(_sql("SELECT COUNT(*) FROM app_users"))
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error("count_app_users: %s", e)
+            return 0
+
+    @classmethod
+    def get_app_user_by_username(cls, username: str):
+        q = _sql(
+            "SELECT id, username, password_hash, role FROM app_users WHERE username = %s"
+        )
+        try:
+            with cls.get_connection() as conn:
+                cur = cls._cursor(conn, dictionary=True)
+                cur.execute(q, (username.strip(),))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                if DB_TYPE == "mysql":
+                    return row
+                return _row_to_dict(row)
+        except Exception as e:
+            logger.error("get_app_user_by_username: %s", e)
+            return None
+
+    @classmethod
+    def insert_app_user(cls, username: str, password_hash: str, role: str) -> bool:
+        q = _sql(
+            "INSERT INTO app_users (username, password_hash, role) VALUES (%s, %s, %s)"
+        )
+        try:
+            with cls.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(q, (username.strip(), password_hash, role))
+                return True
+        except Exception as e:
+            logger.error("insert_app_user: %s", e)
+            return False
+
+    @classmethod
+    def bootstrap_web_users_from_env(cls):
+        """Create first admin (and optional staff) from env when app_users is empty."""
+        from werkzeug.security import generate_password_hash
+
+        if cls.count_app_users() > 0:
+            return
+        admin_user = (os.environ.get("WEB_ADMIN_USERNAME") or "admin").strip() or "admin"
+        admin_pw = (os.environ.get("WEB_ADMIN_PASSWORD") or "").strip()
+        if not admin_pw:
+            logger.warning(
+                "No app_users yet and WEB_ADMIN_PASSWORD is unset — "
+                "set WEB_ADMIN_PASSWORD (and optionally WEB_ADMIN_USERNAME) then restart "
+                "to create the first admin."
+            )
+            return
+        h = generate_password_hash(admin_pw)
+        if cls.insert_app_user(admin_user, h, "admin"):
+            logger.info("Bootstrapped web admin user %r", admin_user)
+        staff_u = (os.environ.get("WEB_STAFF_USERNAME") or "").strip()
+        staff_pw = (os.environ.get("WEB_STAFF_PASSWORD") or "").strip()
+        if staff_u and staff_pw and staff_u.lower() != admin_user.lower():
+            if cls.insert_app_user(staff_u, generate_password_hash(staff_pw), "user"):
+                logger.info("Bootstrapped web staff user %r", staff_u)
 
     @classmethod
     def ensure_attendance_clock_schema(cls):

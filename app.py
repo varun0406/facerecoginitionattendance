@@ -3,14 +3,26 @@ Flask Web Application for Face Recognition Attendance System
 Optimized for VM deployment with mobile/tablet access
 """
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, session
 from flask_cors import CORS
+from functools import wraps
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import os
-from config import SERVER_CONFIG, OFFLINE_CONFIG, FILE_PATHS, TRAINING_CONFIG, AUTO_CHECKOUT_HOURS
+from werkzeug.security import check_password_hash
+
+from config import (
+    SERVER_CONFIG,
+    OFFLINE_CONFIG,
+    FILE_PATHS,
+    TRAINING_CONFIG,
+    AUTO_CHECKOUT_HOURS,
+    AUTH_CONFIG,
+    GEOFENCE_CONFIG,
+)
+from geofence import within_radius
 from database import Database
 from offline_storage import OfflineStorage
 from face_recognition_service import FaceRecognitionService
@@ -20,6 +32,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = AUTH_CONFIG["secret_key"]
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=12)
 
 _cors = os.environ.get('CORS_ORIGINS', '').strip()
 if _cors:
@@ -33,9 +49,48 @@ try:
     Database.create_tables()
     Database.ensure_attendance_clock_schema()
     Database.ensure_checkout_type_column()
+    Database.bootstrap_web_users_from_env()
     logger.info("Database initialized successfully")
 except Exception as e:
     logger.error("Database initialization failed: %s", e)
+
+AUTH_ENABLED = AUTH_CONFIG["enabled"]
+_geof_lat = GEOFENCE_CONFIG["latitude"]
+_geof_lon = GEOFENCE_CONFIG["longitude"]
+GEOFENCE_ACTIVE = GEOFENCE_CONFIG["enabled"] and (
+    abs(_geof_lat) > 1e-5 or abs(_geof_lon) > 1e-5
+)
+if GEOFENCE_CONFIG["enabled"] and not GEOFENCE_ACTIVE:
+    logger.warning(
+        "GEOFENCE_ENABLED is set but GEOFENCE_LATITUDE/LONGITUDE look unset; "
+        "geofence checks are disabled until you set a valid center."
+    )
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not AUTH_ENABLED:
+            return view(*args, **kwargs)
+        if not session.get("user_id"):
+            return jsonify({"success": False, "error": "Authentication required"}), 401
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not AUTH_ENABLED:
+            return view(*args, **kwargs)
+        if not session.get("user_id"):
+            return jsonify({"success": False, "error": "Authentication required"}), 401
+        if session.get("role") != "admin":
+            return jsonify({"success": False, "error": "Admin access required"}), 403
+        return view(*args, **kwargs)
+
+    return wrapped
 
 # Initialize services
 face_service = FaceRecognitionService()
@@ -97,6 +152,103 @@ def background_auto_train():
 auto_train_thread = threading.Thread(target=background_auto_train, daemon=True)
 auto_train_thread.start()
 
+
+@app.route("/api/auth/config", methods=["GET"])
+def auth_config_public():
+    """Tell the SPA whether login and browser geolocation are required."""
+    return jsonify(
+        {
+            "success": True,
+            "auth_required": AUTH_ENABLED,
+            "geofence_required": GEOFENCE_ACTIVE,
+        }
+    )
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def auth_me():
+    if not AUTH_ENABLED:
+        return jsonify(
+            {
+                "success": True,
+                "authenticated": True,
+                "user": {"username": "local", "role": "admin"},
+            }
+        )
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"success": True, "authenticated": False, "user": None})
+    return jsonify(
+        {
+            "success": True,
+            "authenticated": True,
+            "user": {
+                "id": uid,
+                "username": session.get("username"),
+                "role": session.get("role"),
+            },
+        }
+    )
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    if not AUTH_ENABLED:
+        return jsonify({"success": False, "error": "Authentication is disabled"}), 400
+    data = request.get_json() or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username and password required"}), 400
+
+    if GEOFENCE_ACTIVE:
+        try:
+            lat = float(data.get("latitude"))
+            lon = float(data.get("longitude"))
+        except (TypeError, ValueError):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Location required: allow browser location and try again.",
+                }
+            ), 400
+        if not within_radius(
+            lat,
+            lon,
+            _geof_lat,
+            _geof_lon,
+            float(GEOFENCE_CONFIG["radius_meters"]),
+        ):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "You are outside the allowed area for this application.",
+                }
+            ), 403
+
+    row = Database.get_app_user_by_username(username)
+    if not row or not check_password_hash(row["password_hash"], password):
+        return jsonify({"success": False, "error": "Invalid username or password"}), 401
+
+    session.clear()
+    session.permanent = True
+    session["user_id"] = row["id"]
+    session["username"] = row["username"]
+    session["role"] = row["role"]
+    return jsonify(
+        {
+            "success": True,
+            "user": {"username": row["username"], "role": row["role"]},
+        }
+    )
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    session.clear()
+    return jsonify({"success": True})
+
+
 @app.route('/')
 def index():
     """Main page - serve React frontend"""
@@ -131,6 +283,7 @@ def serve_assets(path):
     return '', 404
 
 @app.route('/api/recognize', methods=['POST'])
+@login_required
 def recognize_face():
     """API endpoint for face recognition"""
     try:
@@ -183,6 +336,7 @@ def recognize_face():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/attendance', methods=['GET'])
+@login_required
 def get_attendance():
     """Get attendance records with optional date / date range filtering."""
     try:
@@ -200,6 +354,7 @@ def get_attendance():
 
 
 @app.route('/api/attendance/summary', methods=['GET'])
+@login_required
 def get_attendance_summary():
     """Per-user totals: days present and total hours."""
     try:
@@ -217,6 +372,7 @@ def get_attendance_summary():
 
 
 @app.route('/api/attendance/<int:record_id>', methods=['PUT'])
+@admin_required
 def update_attendance_record(record_id):
     """Manually edit clock-in / clock-out times."""
     try:
@@ -235,6 +391,7 @@ def update_attendance_record(record_id):
 
 
 @app.route('/api/attendance/<int:record_id>', methods=['DELETE'])
+@admin_required
 def delete_attendance_record(record_id):
     """Delete a single attendance record."""
     try:
@@ -248,6 +405,7 @@ def delete_attendance_record(record_id):
 
 
 @app.route('/api/training/status', methods=['GET'])
+@login_required
 def get_training_status():
     """Current training state and pending auto-train flag."""
     try:
@@ -277,6 +435,7 @@ def get_status():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/sync', methods=['POST'])
+@admin_required
 def manual_sync():
     """Manually trigger sync of offline records"""
     try:
@@ -291,6 +450,7 @@ def manual_sync():
 
 # User/Vendor Management Endpoints
 @app.route('/api/vendors', methods=['GET'])
+@login_required
 def get_vendors():
     """Get all vendors/users"""
     try:
@@ -305,6 +465,7 @@ def get_vendors():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/vendors', methods=['POST'])
+@admin_required
 def add_vendor():
     """Add a new vendor/user"""
     try:
@@ -322,6 +483,7 @@ def add_vendor():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/vendors/<int:vendor_id>', methods=['PUT'])
+@admin_required
 def update_vendor(vendor_id):
     """Update vendor information"""
     try:
@@ -338,6 +500,7 @@ def update_vendor(vendor_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/vendors/<int:vendor_id>', methods=['DELETE'])
+@admin_required
 def delete_vendor(vendor_id):
     """Delete vendor + cascade: attendance records + training images."""
     try:
@@ -372,6 +535,7 @@ def delete_vendor(vendor_id):
 
 
 @app.route('/api/vendors/<int:vendor_id>/delete-info', methods=['GET'])
+@admin_required
 def vendor_delete_info(vendor_id):
     """Return counts of data that will be removed on delete (for the UI warning)."""
     try:
@@ -389,6 +553,7 @@ def vendor_delete_info(vendor_id):
 
 # Training Endpoints
 @app.route('/api/training/capture', methods=['POST'])
+@admin_required
 def capture_training_image():
     """Capture a training image for a user"""
     try:
@@ -418,6 +583,7 @@ def capture_training_image():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/count/<int:user_id>', methods=['GET'])
+@admin_required
 def get_training_count(user_id):
     """Get count of training images for a user"""
     try:
@@ -435,6 +601,7 @@ def get_training_count(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/readiness', methods=['GET'])
+@admin_required
 def training_readiness():
     """Whether dataset meets strict rules before Train Model is allowed."""
     try:
@@ -445,6 +612,7 @@ def training_readiness():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/train', methods=['POST'])
+@admin_required
 def train_model():
     """Train the face recognition model"""
     try:
@@ -458,6 +626,7 @@ def train_model():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/delete/<int:user_id>', methods=['DELETE'])
+@admin_required
 def delete_user_images(user_id):
     """Delete all training images for a user"""
     try:
