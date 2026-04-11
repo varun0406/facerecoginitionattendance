@@ -143,13 +143,14 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route element={<ProtectedLayout />}>
-        <Route path="/" element={<Attendance />} />
-        <Route path="/records" element={<AttendanceRecords />} />
+      {/* Explicit path="/" layout so the index <Outlet /> matches (pathless parent + path="/" child can render nothing in RR6). */}
+      <Route path="/" element={<ProtectedLayout />}>
+        <Route index element={<Attendance />} />
+        <Route path="records" element={<AttendanceRecords />} />
         <Route element={<RequireAdmin />}>
-          <Route path="/users" element={<UserManagement />} />
-          <Route path="/training" element={<TrainingCapture />} />
-          <Route path="/train-model" element={<ModelTraining />} />
+          <Route path="users" element={<UserManagement />} />
+          <Route path="training" element={<TrainingCapture />} />
+          <Route path="train-model" element={<ModelTraining />} />
         </Route>
       </Route>
     </Routes>

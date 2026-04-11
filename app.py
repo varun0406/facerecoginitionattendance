@@ -3,7 +3,16 @@ Flask Web Application for Face Recognition Attendance System
 Optimized for VM deployment with mobile/tablet access
 """
 
-from flask import Flask, request, jsonify, send_from_directory, session
+from flask import (
+    Flask,
+    abort,
+    make_response,
+    request,
+    jsonify,
+    send_from_directory,
+    session,
+    Response,
+)
 from flask_cors import CORS
 from functools import wraps
 import threading
@@ -249,12 +258,34 @@ def auth_logout():
     return jsonify({"success": True})
 
 
+def _resolved_asset_file(static_path, path):
+    """Absolute path to a file under static/assets, or None if missing / unsafe."""
+    assets_dir = os.path.realpath(os.path.join(static_path, 'assets'))
+    if not os.path.isdir(assets_dir):
+        return None
+    norm = path.replace('\\', '/').lstrip('/')
+    if not norm or '..' in norm.split('/'):
+        return None
+    full = os.path.realpath(os.path.join(assets_dir, *norm.split('/')))
+    if not full.startswith(assets_dir + os.sep):
+        return None
+    return full if os.path.isfile(full) else None
+
+
+def _send_index_no_cache(static_path):
+    """Serve index.html; avoid stale shell caching old hashed /assets/* URLs after rebuild."""
+    resp = make_response(send_from_directory(static_path, 'index.html'))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
+
+
 @app.route('/')
 def index():
     """Main page - serve React frontend"""
     static_path = FILE_PATHS['static_folder']
     if os.path.exists(os.path.join(static_path, 'index.html')):
-        return send_from_directory(static_path, 'index.html')
+        return _send_index_no_cache(static_path)
     else:
         # Fallback if frontend not built yet
         return """
@@ -275,12 +306,17 @@ npm run build
 
 @app.route('/assets/<path:path>')
 def serve_assets(path):
-    """Serve React build assets"""
+    """Serve React build assets. Missing files must not return HTML (breaks type=module)."""
     static_path = FILE_PATHS['static_folder']
-    assets_path = os.path.join(static_path, 'assets')
-    if os.path.exists(assets_path):
-        return send_from_directory(assets_path, path)
-    return '', 404
+    assets_path = os.path.realpath(os.path.join(static_path, 'assets'))
+    full = _resolved_asset_file(static_path, path)
+    if not full:
+        return Response('Not Found', status=404, mimetype='text/plain')
+    rel = os.path.relpath(full, assets_path)
+    resp = make_response(send_from_directory(assets_path, rel))
+    # Hashed filenames are content-addressed; safe to cache long-term
+    resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
 
 @app.route('/api/recognize', methods=['POST'])
 @login_required
@@ -635,6 +671,19 @@ def delete_user_images(user_id):
     except Exception as e:
         logger.error(f"Error deleting images: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/<path:subpath>')
+def spa_fallback(subpath):
+    """Serve the React app for client-side routes (/login, /records, …)."""
+    if subpath.startswith('api/') or subpath.startswith('assets/'):
+        abort(404)
+    static_path = FILE_PATHS['static_folder']
+    index_path = os.path.join(static_path, 'index.html')
+    if os.path.exists(index_path):
+        return _send_index_no_cache(static_path)
+    abort(404)
+
 
 if __name__ == '__main__':
     app.run(

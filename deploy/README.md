@@ -7,6 +7,20 @@
 - **systemd** unit `face-attendance.service`.
 - Optional **nginx** TLS example in `nginx-face-attendance.conf`.
 
+## Quick redeploy (git pull + build + restart)
+
+From the repo on the server (e.g. `/root/face-attendance`), after `/etc/face-attendance.env` is set (`VITE_API_URL`, `VITE_BASE_PATH` if not default):
+
+```bash
+sudo bash deploy/deploy.sh
+```
+
+Skips `git pull` (only rebuild + restart):
+
+```bash
+sudo bash deploy/deploy.sh --no-pull
+```
+
 ## Prerequisites (Ubuntu 22.04+)
 
 **SQLite (simplest — no database server):**
