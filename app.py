@@ -639,9 +639,9 @@ def vendor_delete_info(vendor_id):
         logger.error(f"Error getting delete info: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# Training Endpoints
+# Training Endpoints (staff + admin: capture, counts, readiness, train; delete images = admin only)
 @app.route('/api/training/capture', methods=['POST'])
-@admin_required
+@login_required
 def capture_training_image():
     """Capture a training image for a user"""
     try:
@@ -671,7 +671,7 @@ def capture_training_image():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/count/<int:user_id>', methods=['GET'])
-@admin_required
+@login_required
 def get_training_count(user_id):
     """Get count of training images for a user"""
     try:
@@ -689,7 +689,7 @@ def get_training_count(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/readiness', methods=['GET'])
-@admin_required
+@login_required
 def training_readiness():
     """Whether dataset meets strict rules before Train Model is allowed."""
     try:
@@ -700,7 +700,7 @@ def training_readiness():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/training/train', methods=['POST'])
-@admin_required
+@login_required
 def train_model():
     """Train the face recognition model"""
     try:

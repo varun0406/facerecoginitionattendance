@@ -65,18 +65,16 @@ function Navigation() {
       <Link to="/users" className={`nav-link ${isActive('/users') ? 'active' : ''}`}>
         <span>Users</span>
       </Link>
+      <Link to="/training" className={`nav-link ${isActive('/training') ? 'active' : ''}`}>
+        <span>Training</span>
+      </Link>
+      <Link to="/train-model" className={`nav-link ${isActive('/train-model') ? 'active' : ''}`}>
+        <span>Train Model</span>
+      </Link>
       {isAdmin && (
-        <>
-          <Link to="/staff" className={`nav-link ${isActive('/staff') ? 'active' : ''}`}>
-            <span>Staff</span>
-          </Link>
-          <Link to="/training" className={`nav-link ${isActive('/training') ? 'active' : ''}`}>
-            <span>Training</span>
-          </Link>
-          <Link to="/train-model" className={`nav-link ${isActive('/train-model') ? 'active' : ''}`}>
-            <span>Train Model</span>
-          </Link>
-        </>
+        <Link to="/staff" className={`nav-link ${isActive('/staff') ? 'active' : ''}`}>
+          <span>Staff</span>
+        </Link>
       )}
       <Link to="/records" className={`nav-link ${isActive('/records') ? 'active' : ''}`}>
         <span>Records</span>
@@ -152,10 +150,10 @@ function AppRoutes() {
         <Route index element={<Attendance />} />
         <Route path="records" element={<AttendanceRecords />} />
         <Route path="users" element={<UserManagement />} />
+        <Route path="training" element={<TrainingCapture />} />
+        <Route path="train-model" element={<ModelTraining />} />
         <Route element={<RequireAdmin />}>
           <Route path="staff" element={<StaffAccounts />} />
-          <Route path="training" element={<TrainingCapture />} />
-          <Route path="train-model" element={<ModelTraining />} />
         </Route>
       </Route>
     </Routes>
