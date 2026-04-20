@@ -23,6 +23,8 @@ function TrainingCapture() {
   const [mediaStream, setMediaStream] = useState(null)
   const [autoTrainPending, setAutoTrainPending] = useState(false)
   const [isTraining, setIsTraining] = useState(false)
+  const [facingMode, setFacingMode] = useState('environment')
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -61,6 +63,21 @@ function TrainingCapture() {
       }
     }
   }, [mediaStream, status])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (!navigator?.mediaDevices?.enumerateDevices) return
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const cams = devices.filter(d => d.kind === 'videoinput')
+        if (!cancelled) setCanSwitchCamera(cams.length > 1)
+      } catch {
+        if (!cancelled) setCanSwitchCamera(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const loadVendors = async () => {
     try {
@@ -104,7 +121,7 @@ function TrainingCapture() {
 
     try {
       // Use camera utility for cross-platform compatibility
-      const result = await requestCameraAccess(getCameraConstraints())
+      const result = await requestCameraAccess(getCameraConstraints(facingMode))
       
       if (!result.success) {
         setError(result.error || 'Failed to access camera')
@@ -137,6 +154,17 @@ function TrainingCapture() {
       videoRef.current.srcObject = null
     }
     setStatus('idle')
+  }
+
+  const switchCamera = async () => {
+    if (status === 'capturing') return
+    const next = facingMode === 'environment' ? 'user' : 'environment'
+    setFacingMode(next)
+    setError('')
+    if (streamRef.current) {
+      stopCamera()
+      await startCamera()
+    }
   }
 
   const captureImage = async () => {
@@ -328,6 +356,11 @@ function TrainingCapture() {
                     <Camera size={24} />
                     Capture Image
                   </button>
+                  {canSwitchCamera && (
+                    <button className="btn btn-secondary" onClick={switchCamera} title="Switch camera">
+                      <RefreshCw size={18} /> Switch
+                    </button>
+                  )}
                   <button className="btn btn-secondary" onClick={stopCamera}>
                     Stop Camera
                   </button>

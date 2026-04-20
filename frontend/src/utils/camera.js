@@ -23,16 +23,18 @@ export function getInsecureCameraMessage() {
 /**
  * Get camera constraints optimized for both desktop and mobile
  */
-export function getCameraConstraints() {
+export function getCameraConstraints(preferredFacingMode) {
   // Check if we're on a mobile device
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+
+  const facing = preferredFacingMode || (isMobile ? 'environment' : 'user')
   
   if (isMobile) {
     // Mobile-optimized constraints
     return {
       video: {
-        // Prefer back camera on phones/tablets (falls back automatically if unavailable)
-        facingMode: { ideal: 'environment' },
+        // Prefer selected camera on phones/tablets (falls back automatically if unavailable)
+        facingMode: { ideal: facing },
         width: { ideal: 640, max: 1280 },
         height: { ideal: 480, max: 720 },
         aspectRatio: { ideal: 1.7777777778 }, // 16:9
@@ -44,7 +46,7 @@ export function getCameraConstraints() {
     // Desktop-optimized constraints
     return {
       video: {
-        facingMode: 'user', // Webcam
+        facingMode: facing, // Webcam (or environment if requested)
         width: { ideal: 640, max: 1280 },
         height: { ideal: 480, max: 720 },
         aspectRatio: { ideal: 1.7777777778 }

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Camera, CheckCircle, XCircle, Loader, Wifi, WifiOff } from 'lucide-react'
+import { Camera, CheckCircle, XCircle, Loader, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import axios from 'axios'
 import {
   requestCameraAccess,
@@ -18,6 +18,8 @@ function Attendance() {
   const [isOnline, setIsOnline] = useState(true)
   const [pendingSync, setPendingSync] = useState(0)
   const [mediaStream, setMediaStream] = useState(null)
+  const [facingMode, setFacingMode] = useState('environment')
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false)
   const resultRef = useRef(null)
 
   const videoRef = useRef(null)
@@ -48,6 +50,22 @@ function Attendance() {
     }
   }, [status])
 
+  useEffect(() => {
+    // Best-effort: if the device only has 1 camera, hide the toggle.
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (!navigator?.mediaDevices?.enumerateDevices) return
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const cams = devices.filter(d => d.kind === 'videoinput')
+        if (!cancelled) setCanSwitchCamera(cams.length > 1)
+      } catch {
+        if (!cancelled) setCanSwitchCamera(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   const checkSystemStatus = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/status`)
@@ -60,7 +78,7 @@ function Attendance() {
 
   const startCamera = async () => {
     try {
-      const result = await requestCameraAccess(getCameraConstraints())
+      const result = await requestCameraAccess(getCameraConstraints(facingMode))
 
       if (!result.success) {
         setError(result.error || 'Failed to access camera')
@@ -86,6 +104,19 @@ function Attendance() {
     setMediaStream(null)
     if (videoRef.current) {
       videoRef.current.srcObject = null
+    }
+  }
+
+  const switchCamera = async () => {
+    // Avoid switching mid-request
+    if (status === 'processing') return
+    const next = facingMode === 'environment' ? 'user' : 'environment'
+    setFacingMode(next)
+    setError(null)
+    // Restart stream if currently running
+    if (streamRef.current) {
+      stopCamera()
+      await startCamera()
     }
   }
 
@@ -287,6 +318,16 @@ function Attendance() {
               <Camera size={24} />
               {status === 'processing' ? 'Processing…' : 'Capture'}
             </button>
+            {canSwitchCamera && (
+              <button
+                className="btn btn-secondary"
+                onClick={switchCamera}
+                disabled={status === 'processing'}
+                title="Switch camera"
+              >
+                <RefreshCw size={18} /> Switch
+              </button>
+            )}
             <button className="btn btn-secondary" onClick={handleStop}>
               Stop camera
             </button>
