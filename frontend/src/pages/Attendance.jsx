@@ -18,6 +18,7 @@ function Attendance() {
   const [isOnline, setIsOnline] = useState(true)
   const [pendingSync, setPendingSync] = useState(0)
   const [mediaStream, setMediaStream] = useState(null)
+  const resultRef = useRef(null)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -40,6 +41,12 @@ function Attendance() {
       }
     }
   }, [mediaStream, status])
+
+  useEffect(() => {
+    if (status === 'success' || status === 'error' || status === 'day-complete') {
+      resultRef.current?.focus?.()
+    }
+  }, [status])
 
   const checkSystemStatus = async () => {
     try {
@@ -147,9 +154,6 @@ function Attendance() {
     setStatus('processing')
 
     try {
-      // Log image data size for debugging
-      console.log('Image data length:', imageData.length)
-      
       const response = await axios.post(`${API_BASE_URL}/recognize`, {
         image: imageData
       }, {
@@ -214,8 +218,26 @@ function Attendance() {
     resetState()
   }
 
+  const cameraReady = !!mediaStream
+  const stepLabel =
+    !cameraReady ? 'Step 1 of 2 — Start camera' :
+    status === 'processing' ? 'Step 2 of 2 — Processing' :
+    'Step 2 of 2 — Capture'
+
   return (
     <div className="attendance-page">
+      <div className="attendance-hero" aria-live="polite">
+        <div className="attendance-hero-text">
+          <h2>Attendance</h2>
+          <p className="attendance-subtitle">
+            First scan records <strong>clock-in</strong>; second scan records <strong>clock-out</strong>.
+          </p>
+        </div>
+        <div className="attendance-step" role="status">
+          <span className="attendance-step-label">{stepLabel}</span>
+        </div>
+      </div>
+
       <div className="status-indicators">
         <div className={`status-indicator ${isOnline ? 'online' : 'offline'}`}>
           {isOnline ? <Wifi size={18} /> : <WifiOff size={18} />}
@@ -231,14 +253,15 @@ function Attendance() {
       {status === 'idle' && !mediaStream && (
         <div className="start-screen">
           <Camera size={64} className="camera-icon" />
-          <h2>Clock in / Clock out</h2>
-          <p>
-            First scan today records <strong>start time</strong>; second scan records <strong>stop time</strong>.
-            The face must match a registered person (training ID = user ID).
+          <h3>Ready to scan</h3>
+          <p className="start-copy">
+            Make sure the face is centered, well‑lit, and only one person is visible.
           </p>
-          <button className="btn btn-primary" onClick={handleStart}>
-            Start Camera
-          </button>
+          <div className="start-actions">
+            <button className="btn btn-primary btn-lg" onClick={handleStart}>
+              Start camera
+            </button>
+          </div>
         </div>
       )}
 
@@ -254,22 +277,25 @@ function Attendance() {
           />
           <canvas ref={canvasRef} style={{ display: 'none' }} />
           
-          {status === 'idle' && (
-            <div className="camera-controls">
-              <button className="btn btn-capture" onClick={captureAndRecognize}>
-                <Camera size={24} />
-                Capture & Recognize
-              </button>
-              <button className="btn btn-secondary" onClick={handleStop}>
-                Stop Camera
-              </button>
-            </div>
-          )}
+          <div className="camera-controls">
+            <button
+              className="btn btn-capture"
+              onClick={captureAndRecognize}
+              disabled={status !== 'idle'}
+              aria-disabled={status !== 'idle'}
+            >
+              <Camera size={24} />
+              {status === 'processing' ? 'Processing…' : 'Capture'}
+            </button>
+            <button className="btn btn-secondary" onClick={handleStop}>
+              Stop camera
+            </button>
+          </div>
 
           {status === 'processing' && (
             <div className="processing-overlay">
               <Loader className="spinner" size={48} />
-              <p>Processing... (Max 20 seconds)</p>
+              <p>Processing… (up to 20 seconds)</p>
               {processingTime > 0 && (
                 <p className="time-indicator">{processingTime.toFixed(1)}s</p>
               )}
@@ -279,7 +305,7 @@ function Attendance() {
       )}
 
       {status === 'day-complete' && result && (
-        <div className="result-screen info">
+        <div className="result-screen info" tabIndex={-1} ref={resultRef}>
           <CheckCircle size={64} className="success-icon" />
           <h2>Recognized — day already complete</h2>
           <p className="info-message">
@@ -307,7 +333,7 @@ function Attendance() {
       )}
 
       {status === 'success' && result && result.attendance?.success !== false && (
-        <div className="result-screen success">
+        <div className="result-screen success" tabIndex={-1} ref={resultRef}>
           <CheckCircle size={64} className="success-icon" />
           <h2>
             {result.attendance.punch_type === 'clock_out' ? 'Clock-out recorded!' : 'Clock-in recorded!'}
@@ -347,11 +373,14 @@ function Attendance() {
             )}
           </div>
           <p className="success-message">{result.attendance.message}</p>
+          <div className="button-group">
+            <button className="btn btn-primary" onClick={resetState}>Done</button>
+          </div>
         </div>
       )}
 
       {status === 'error' && (
-        <div className="result-screen error">
+        <div className="result-screen error" tabIndex={-1} ref={resultRef}>
           <XCircle size={64} className="error-icon" />
           <h2>Recognition Failed</h2>
           <p className="error-message">{error}</p>

@@ -27,7 +27,6 @@ from config import (
     OFFLINE_CONFIG,
     FILE_PATHS,
     TRAINING_CONFIG,
-    AUTO_CHECKOUT_HOURS,
     AUTH_CONFIG,
     GEOFENCE_CONFIG,
 )
@@ -123,23 +122,6 @@ def background_sync():
 # Start background sync thread
 sync_thread = threading.Thread(target=background_sync, daemon=True)
 sync_thread.start()
-
-
-def background_auto_checkout():
-    """Auto-close sessions open longer than AUTO_CHECKOUT_HOURS every 30 min."""
-    while True:
-        try:
-            closed = Database.auto_checkout_open_sessions(AUTO_CHECKOUT_HOURS)
-            if closed:
-                logger.info("Auto-checkout: closed %s session(s)", closed)
-        except Exception as e:
-            logger.error("Error in auto-checkout thread: %s", e)
-        time.sleep(1800)
-
-
-auto_checkout_thread = threading.Thread(target=background_auto_checkout, daemon=True)
-auto_checkout_thread.start()
-
 
 def background_auto_train():
     """Retrain model in background when training_service signals pending."""

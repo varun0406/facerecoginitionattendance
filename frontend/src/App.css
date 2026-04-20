@@ -188,6 +188,62 @@
   flex-wrap: wrap;
 }
 
+.attendance-hero {
+  max-width: 820px;
+  margin: 1.25rem auto 0;
+  padding: 0 1rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.attendance-hero h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: #ffffff;
+}
+
+.attendance-subtitle {
+  margin: 0.35rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  max-width: 46rem;
+}
+
+.attendance-step {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+
+.attendance-step-label {
+  white-space: nowrap;
+}
+
+.btn-lg {
+  padding: 0.9rem 1.25rem;
+  font-size: 1.05rem;
+}
+
+.start-copy {
+  color: #cbd5e1;
+  max-width: 42rem;
+  margin: 0.6rem auto 0;
+  line-height: 1.55;
+}
+
+.start-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
 .status-indicator {
   display: flex;
   align-items: center;
